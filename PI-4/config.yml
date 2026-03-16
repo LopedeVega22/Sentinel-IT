@@ -1,0 +1,19 @@
+aws:
+  endpoint: "aj4wsdnimoej8-ats.iot.eu-north-1.amazonaws.com"
+  client_id: "Pi4-Felix-Sensor"
+  cert_path: "/home/lopex/pi4-felix/Pi4-Felix.cert.pem"
+  key_path: "/home/lopex/pi4-felix/Pi4-Felix.private.key"
+  root_ca: "/home/lopex/pi4-felix/root-CA.crt"
+
+mqtt:
+  topic_logs: "seguridad/logs/Pi4-Felix/ssh"
+  topic_acciones: "seguridad/acciones/Pi4-Felix"
+
+system:
+  log_file: "/var/log/auth.log"
+
+logging:
+  file_path: "sensor_soc.log"
+  level: "INFO"
+  max_bytes: 5242880
+  backup_count: 3
