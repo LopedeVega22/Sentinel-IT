@@ -1,8 +1,14 @@
 <?php
-$page_title = 'Panel de Control';
+require_once 'db.php';
+// Header ya inicia la sesión
+$page_title = 'Panel Live';
 require 'includes/header.php';
+
+if (!isset($_SESSION['usuario_id'])) {
+    header('Location: login.php');
+    exit;
+}
 require 'includes/navbar.php';
-require 'db.php';
 
 // ── Totales globales ─────────────────────────────────────────────────────────
 $detectados = (int) $pdo->query('SELECT COUNT(*) FROM eventos WHERE tipo = "detectado"')->fetchColumn();

@@ -1,11 +1,26 @@
-<?php // includes/header.php ?>
+<?php // includes/header.php 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+$ajustes_globales = [];
+if (isset($pdo)) {
+    try {
+        $stmt_aj = $pdo->query("SELECT clave, valor FROM ajustes");
+        while ($row = $stmt_aj->fetch(PDO::FETCH_ASSOC)) {
+            $ajustes_globales[$row['clave']] = $row['valor'];
+        }
+    } catch (PDOException $e) { /* Ignorar error en header si no hay bd */ }
+}
+$site_title_global = $ajustes_globales['site_title'] ?? 'CyberGuard';
+$contact_email_global = $ajustes_globales['contact_email'] ?? 'info@cyberguard.com';
+?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="CyberGuard — Soluciones de ciberseguridad basadas en Raspberry Pi y AWS IoT">
-    <title><?= htmlspecialchars($page_title ?? 'CyberGuard') ?> | CyberGuard</title>
+    <meta name="description" content="<?= htmlspecialchars($site_title_global) ?> — Soluciones de ciberseguridad basadas en Raspberry Pi y AWS IoT">
+    <title><?= htmlspecialchars($page_title ?? $site_title_global) ?> | <?= htmlspecialchars($site_title_global) ?></title>
 
     <!-- Bootstrap 5 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -15,6 +30,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <!-- Estilos propios -->
-    <link href="/css/main.css" rel="stylesheet">
+    <link href="css/main.css" rel="stylesheet">
 </head>
 <body>

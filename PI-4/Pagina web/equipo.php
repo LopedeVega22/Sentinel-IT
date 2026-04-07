@@ -5,9 +5,8 @@ require 'includes/navbar.php';
 
 // AJUSTA: cambia los datos del equipo con los reales
 $equipo = [
-    ['nombre'=>'Nombre Apellido', 'rol'=>'Arquitecto de seguridad',  'desc'=>'Especialista en infraestructura IoT y AWS. Diseño del sistema de agentes distribuidos.', 'linkedin'=>'#'],
-    ['nombre'=>'Nombre Apellido', 'rol'=>'Desarrollador Python',     'desc'=>'Desarrollo de los agentes de monitorización y lógica de detección en tiempo real.',      'linkedin'=>'#'],
-    ['nombre'=>'Nombre Apellido', 'rol'=>'Administrador de sistemas','desc'=>'Gestión de la infraestructura AWS, certificados IoT y despliegue en producción.',         'linkedin'=>'#'],
+    ['nombre'=>'Felix Tejedor Zapatero', 'rol'=>'Técnico de monitorización', 'desc'=>'Especialista en infraestructura IoT y AWS. Diseño del sistema de agentes distribuidos.'],
+    ['nombre'=>'Daniel Alarcón Perea', 'rol'=>'Técnico de respuesta', 'desc'=>'Desarrollo de los agentes de monitorización y lógica de detección en tiempo real.'],
 ];
 ?>
 
@@ -29,9 +28,7 @@ $equipo = [
                 <h5 class="fw-bold mb-1"><?= htmlspecialchars($persona['nombre']) ?></h5>
                 <p class="mb-2" style="color:var(--color-primary);font-size:0.85rem"><?= htmlspecialchars($persona['rol']) ?></p>
                 <p class="text-muted small mb-3"><?= htmlspecialchars($persona['desc']) ?></p>
-                <a href="<?= $persona['linkedin'] ?>" class="btn-outline-cyber py-1 px-3" style="font-size:0.85rem">
-                    <i class="bi bi-linkedin me-1"></i>LinkedIn
-                </a>
+
             </div>
         </div>
         <?php endforeach; ?>

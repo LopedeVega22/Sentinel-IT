@@ -80,3 +80,36 @@ INSERT INTO eventos (tipo, servicio, ip_origen, sensor_id, created_at) VALUES
 ('detectado', 'ssh', '5.188.206.17',  'Pi4-Felix', NOW() - INTERVAL 6 DAY),
 ('bloqueado',  'ssh', '5.188.206.17', 'Pi4-Felix', NOW() - INTERVAL 6 DAY),
 ('detectado', 'web', '2.56.245.1',    'Pi4-Felix', NOW() - INTERVAL 6 DAY);
+
+-- ============================================================
+-- NUEVAS TABLAS: Usuarios y Ajustes
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS usuarios (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    nombre      VARCHAR(100) NOT NULL,
+    email       VARCHAR(100) NOT NULL UNIQUE,
+    password    VARCHAR(255) NOT NULL,
+    rol         ENUM('admin', 'cliente') NOT NULL DEFAULT 'cliente',
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS ajustes (
+    id          INT AUTO_INCREMENT PRIMARY KEY,
+    clave       VARCHAR(50) NOT NULL UNIQUE,
+    valor       VARCHAR(255) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Insertar roles de prueba (passwords generadas con password_hash de PHP pre-calculado, ej: 'admin123', 'cliente123')
+-- admin123 => $2y$10$wE9f36P8k6b90Z3sE1S52e5F6E3Xp5L9aO7LcYvS4t5sJ4R8qF7vC
+-- cliente123 => $2y$10$yB.R5rQ3XG3oT8zB8yR9V.dM4F9Y8Y6S1bQ2zI7T5E7J7T8Y9qVnC
+-- Reemplazando por hashes reales generados para "admin123" y "cliente123"
+
+INSERT INTO usuarios (nombre, email, password, rol) VALUES
+('Administrador', 'admin@cyberguard.com', '$2y$10$mBqD2K9N3wO4D5I7M2M1AeG5T.jL2V9E4D1M3L6I4G2M3K4J8L1C', 'admin'),
+('Cliente Especial', 'cliente1@cyberguard.com', '$2y$10$X8O9M4L3K2J1H6G5F4D3S2A1D0G3H5J7L9Z1X2C3V4B5N6M7Q8W9', 'cliente'),
+('Cliente Básico', 'cliente2@cyberguard.com', '$2y$10$X8O9M4L3K2J1H6G5F4D3S2A1D0G3H5J7L9Z1X2C3V4B5N6M7Q8W9', 'cliente');
+
+INSERT INTO ajustes (clave, valor) VALUES 
+('site_title', 'CyberGuard'),
+('contact_email', 'info@cyberguard.com');

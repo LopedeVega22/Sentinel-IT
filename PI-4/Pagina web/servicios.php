@@ -46,8 +46,8 @@ $color_map = [
     <!-- CTA -->
     <div class="text-center mt-5 pt-3">
         <p class="text-muted mb-4">¿Quieres saber cómo desplegamos el sistema en tu entorno?</p>
-        <a href="/como-funciona.php" class="btn-primary-cyber me-3">Ver cómo funciona</a>
-        <a href="/contacto.php"      class="btn-outline-cyber">Contactar</a>
+        <a href="como-funciona.php" class="btn-primary-cyber me-3">Ver cómo funciona</a>
+        <a href="contacto.php"      class="btn-outline-cyber">Contactar</a>
     </div>
 </main>
 

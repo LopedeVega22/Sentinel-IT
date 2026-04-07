@@ -4,15 +4,15 @@
 
 /* Variables globales */
 :root {
-    --color-bg:       #0A0F2C;
-    --color-surface:  #111827;
-    --color-border:   rgba(0, 212, 255, 0.12);
-    --color-primary:  #00D4FF;
-    --color-success:  #00C48C;
-    --color-danger:   #FF3B5C;
-    --color-warning:  #FFB800;
-    --color-text:     #E8EAF0;
-    --color-muted:    #8892A4;
+    --color-bg:       #F8F9FA;
+    --color-surface:  #FFFFFF;
+    --color-border:   rgba(0, 0, 0, 0.12);
+    --color-primary:  #0056D2;
+    --color-success:  #00875A;
+    --color-danger:   #DC3545;
+    --color-warning:  #FFC107;
+    --color-text:     #212529;
+    --color-muted:    #6C757D;
     --radius:         12px;
     --font-display:   'Syne', sans-serif;
     --font-body:      'DM Sans', sans-serif;
@@ -32,7 +32,7 @@ h1, h2, h3, h4, h5 {
 
 /* Navbar */
 #mainNav {
-    background: rgba(8, 13, 31, 0.95) !important;
+    background: rgba(255, 255, 255, 0.95) !important;
     backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--color-border);
 }
@@ -43,21 +43,21 @@ h1, h2, h3, h4, h5 {
 }
 #mainNav .nav-link:hover,
 #mainNav .nav-link.active {
-    color: var(--color-text) !important;
+    color: var(--color-primary) !important;
 }
 
 /* Botón de la navbar */
-.btn-cyber {
-    background: rgba(0, 212, 255, 0.1);
+#mainNav .btn-cyber {
+    background: rgba(0, 86, 210, 0.1);
     color: var(--color-primary) !important;
-    border: 1px solid rgba(0, 212, 255, 0.3);
+    border: 1px solid rgba(0, 86, 210, 0.3);
     font-weight: 600;
     font-size: 0.85rem;
     transition: all 0.2s;
 }
-.btn-cyber:hover {
+#mainNav .btn-cyber:hover {
     background: var(--color-primary);
-    color: #000 !important;
+    color: #FFF !important;
 }
 
 /* Hero */
@@ -67,8 +67,8 @@ h1, h2, h3, h4, h5 {
     align-items: center;
     position: relative;
     overflow: hidden;
-    background: radial-gradient(ellipse at 20% 50%, rgba(0,212,255,0.06) 0%, transparent 60%),
-                radial-gradient(ellipse at 80% 20%, rgba(0,196,140,0.05) 0%, transparent 60%);
+    background: radial-gradient(ellipse at 20% 50%, rgba(0,86,210,0.06) 0%, transparent 60%),
+                radial-gradient(ellipse at 80% 20%, rgba(0,135,90,0.05) 0%, transparent 60%);
 }
 .hero-title {
     font-size: clamp(2.5rem, 6vw, 5rem);
@@ -87,7 +87,7 @@ h1, h2, h3, h4, h5 {
 /* Botones principales */
 .btn-primary-cyber {
     background: var(--color-primary);
-    color: #000;
+    color: #FFF;
     font-weight: 700;
     padding: 0.8rem 2rem;
     border-radius: 8px;
@@ -99,7 +99,7 @@ h1, h2, h3, h4, h5 {
 .btn-primary-cyber:hover {
     filter: brightness(1.15);
     transform: translateY(-2px);
-    color: #000;
+    color: #FFF;
 }
 .btn-outline-cyber {
     background: transparent;
@@ -107,7 +107,7 @@ h1, h2, h3, h4, h5 {
     font-weight: 600;
     padding: 0.8rem 2rem;
     border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.2);
+    border: 1px solid rgba(0,0,0,0.2);
     text-decoration: none;
     display: inline-block;
     transition: border-color 0.2s, color 0.2s;
@@ -127,7 +127,7 @@ h1, h2, h3, h4, h5 {
 }
 .card-cyber:hover {
     border-color: var(--color-primary);
-    box-shadow: 0 0 30px rgba(0, 212, 255, 0.08);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
     transform: translateY(-4px);
 }
 .card-cyber .icon-wrap {
@@ -139,7 +139,7 @@ h1, h2, h3, h4, h5 {
     justify-content: center;
     font-size: 1.4rem;
     margin-bottom: 1.2rem;
-    background: rgba(0, 212, 255, 0.1);
+    background: rgba(0, 86, 210, 0.1);
     color: var(--color-primary);
 }
 
@@ -159,18 +159,18 @@ h1, h2, h3, h4, h5 {
 
 /* Badge de servicio */
 .badge-cyber {
-    background: rgba(0, 212, 255, 0.1);
+    background: rgba(0, 86, 210, 0.1);
     color: var(--color-primary);
-    border: 1px solid rgba(0, 212, 255, 0.2);
+    border: 1px solid rgba(0, 86, 210, 0.2);
     border-radius: 6px;
     font-size: 0.75rem;
     padding: 0.3rem 0.7rem;
     font-family: var(--font-mono);
 }
 
-/* Sección oscura */
-.section-dark {
-    background: rgba(0, 0, 0, 0.3);
+/* Sección alternativa */
+.section-alt {
+    background: rgba(0, 86, 210, 0.03);
     border-top: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
 }
@@ -255,7 +255,7 @@ h1, h2, h3, h4, h5 {
     height: 44px;
     min-width: 44px;
     border-radius: 50%;
-    background: rgba(0, 212, 255, 0.1);
+    background: rgba(0, 86, 210, 0.1);
     border: 2px solid var(--color-primary);
     color: var(--color-primary);
     font-family: var(--font-mono);

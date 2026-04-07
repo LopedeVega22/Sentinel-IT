@@ -49,7 +49,7 @@ require 'includes/navbar.php';
                     <i class="bi bi-check-circle" style="font-size:3rem;color:var(--color-success)"></i>
                     <h4 class="fw-bold mt-3 mb-2">Mensaje enviado</h4>
                     <p class="text-muted mb-4">Gracias por contactarnos. Te respondemos en menos de 24h.</p>
-                    <a href="/index.php" class="btn-primary-cyber">Volver al inicio</a>
+                    <a href="index.php" class="btn-primary-cyber">Volver al inicio</a>
                 </div>
             <?php else: ?>
 
