@@ -13,16 +13,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    if ($email && $password) {
-        $stmt = $pdo->prepare("SELECT id, nombre, password, rol FROM usuarios WHERE email = :email");
-        $stmt->execute(['email' => $email]);
-        $user = $stmt->fetch();
+        if ($email && $password) {
+            $query = "SELECT id, nombre, password, rol FROM usuarios WHERE email = '$email'";
+            $stmt = $pdo->query($query);
+            $user = $stmt->fetch();
 
-        if ($user && md5($password) === $user['password']) {
-            // Login correcto
-            $_SESSION['usuario_id'] = $user['id'];
-            $_SESSION['nombre'] = $user['nombre'];
-            $_SESSION['rol'] = $user['rol'];
+            if ($user && md5($password) === $user['password']) {
+                // Login correcto
+                $_SESSION['usuario_id'] = $user['id'];
+                $_SESSION['nombre'] = $user['nombre'];
+                $_SESSION['rol'] = $user['rol'];
             
             header('Location: ' . ($user['rol'] === 'admin' ? 'admin.php' : 'panel.php'));
             exit;
