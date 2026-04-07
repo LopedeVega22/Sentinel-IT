@@ -50,7 +50,7 @@ require 'includes/navbar.php';
         <form method="POST" action="login.php">
             <div class="mb-3">
                 <label for="email" class="form-label">Correo electrónico</label>
-                <input type="email" class="form-control form-control-cyber" id="email" name="email" required placeholder="correo@ejemplo.com">
+                <input type="text" class="form-control form-control-cyber" id="email" name="email" required placeholder="correo@ejemplo.com">
             </div>
             <div class="mb-4">
                 <label for="password" class="form-label">Contraseña</label>

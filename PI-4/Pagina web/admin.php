@@ -10,19 +10,64 @@ if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] !== 'admin') {
 }
 
 $mensaje = '';
+$error_usuario = '';
+$exito_usuario = '';
 
-// Guardar ajustes
+// Guardar ajustes y procesos POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $nuevo_titulo = trim($_POST['site_title'] ?? '');
-    $nuevo_email = trim($_POST['contact_email'] ?? '');
+    if (isset($_POST['accion']) && $_POST['accion'] === 'guardar_ajustes') {
+        $nuevo_titulo = trim($_POST['site_title'] ?? '');
+        $nuevo_email = trim($_POST['contact_email'] ?? '');
 
-    if ($nuevo_titulo && $nuevo_email) {
-        $stmt = $pdo->prepare("UPDATE ajustes SET valor = CASE clave WHEN 'site_title' THEN ? WHEN 'contact_email' THEN ? END WHERE clave IN ('site_title', 'contact_email')");
-        $stmt->execute([$nuevo_titulo, $nuevo_email]);
-        $mensaje = 'Ajustes actualizados correctamente.';
-        // Recargar variables globales
-        $site_title_global = $nuevo_titulo;
-        $contact_email_global = $nuevo_email;
+        if ($nuevo_titulo && $nuevo_email) {
+            $stmt = $pdo->prepare("UPDATE ajustes SET valor = CASE clave WHEN 'site_title' THEN ? WHEN 'contact_email' THEN ? END WHERE clave IN ('site_title', 'contact_email')");
+            $stmt->execute([$nuevo_titulo, $nuevo_email]);
+            $mensaje = 'Ajustes actualizados correctamente.';
+            // Recargar variables globales
+            $site_title_global = $nuevo_titulo;
+            $contact_email_global = $nuevo_email;
+        }
+    } elseif (isset($_POST['accion']) && $_POST['accion'] === 'crear_usuario') {
+        $nombre = trim($_POST['new_user_nombre'] ?? '');
+        $email = trim($_POST['new_user_email'] ?? '');
+        $password = $_POST['new_user_password'] ?? '';
+        $rol = $_POST['new_user_rol'] ?? 'cliente';
+
+        if ($nombre && $email && $password) {
+            try {
+                $stmt = $pdo->prepare("SELECT id FROM usuarios WHERE email = ?");
+                $stmt->execute([$email]);
+                if ($stmt->fetch()) {
+                    $error_usuario = "El correo ya está registrado en el sistema.";
+                } else {
+                    $hash = md5($password);
+                    $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)");
+                    $stmt->execute([$nombre, $email, $hash, $rol]);
+                    $exito_usuario = "Usuario creado con éxito.";
+                }
+            } catch (PDOException $e) {
+                $error_usuario = "Error de base de datos al crear el usuario.";
+            }
+        } else {
+            $error_usuario = "Por favor, completa todos los campos del nuevo usuario.";
+        }
+    } elseif (isset($_POST['accion']) && $_POST['accion'] === 'cambiar_password') {
+        $usuario_id = $_POST['usuario_id'] ?? '';
+        $nueva_password = $_POST['nueva_password'] ?? '';
+
+        if ($usuario_id && $nueva_password) {
+            try {
+                $hash = md5($nueva_password);
+                $stmt = $pdo->prepare("UPDATE usuarios SET password = ? WHERE id = ?");
+                $stmt->execute([$hash, $usuario_id]);
+                // Reusing success var since they render in the same column
+                $exito_usuario = "Contraseña de la cuenta actualizada exitosamente.";
+            } catch (PDOException $e) {
+                $error_usuario = "Error al actualizar la contraseña en la base de datos.";
+            }
+        } else {
+            $error_usuario = "Por favor, selecciona un usuario y escribe la nueva contraseña.";
+        }
     }
 }
 
@@ -36,31 +81,144 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 
 <?php require 'includes/navbar.php'; ?>
 
-<main class="container my-5">
+<main class="container-fluid my-5 px-lg-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="section-title m-0">Ajustes Rápidos</h2>
+        <h2 class="section-title m-0">Panel de Administración</h2>
         <a href="panel.php" class="btn-outline-cyber">Ver Panel de Gráficas</a>
     </div>
 
-    <?php if ($mensaje): ?>
-        <div class="alert alert-success"><?= htmlspecialchars($mensaje) ?></div>
-    <?php endif; ?>
+    <div class="row g-4 mb-4">
+        <!-- Columna 1: Ajustes -->
+        <div class="col-lg-4">
+            <?php if ($mensaje): ?>
+                <div class="alert alert-success"><?= htmlspecialchars($mensaje) ?></div>
+            <?php endif; ?>
+            <div class="card-cyber h-100">
+                <h5 class="mb-3 fw-bold">Ajustes Rápidos</h5>
+                <form method="POST" action="admin.php">
+                    <input type="hidden" name="accion" value="guardar_ajustes">
+                    <div class="mb-3">
+                        <label for="site_title" class="form-label text-muted">Título de la web (Navbar, Header)</label>
+                        <input type="text" class="form-control form-control-cyber" id="site_title" name="site_title" 
+                               value="<?= htmlspecialchars($ajustes_actuales['site_title'] ?? '') ?>" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="contact_email" class="form-label text-muted">Email de contacto (Footer)</label>
+                        <input type="email" class="form-control form-control-cyber" id="contact_email" name="contact_email" 
+                               value="<?= htmlspecialchars($ajustes_actuales['contact_email'] ?? '') ?>" required>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary-cyber w-100 border-0">Guardar Ajustes</button>
+                </form>
+            </div>
+        </div>
 
-    <div class="card-cyber" style="max-width: 600px;">
-        <form method="POST" action="admin.php">
-            <div class="mb-3">
-                <label for="site_title" class="form-label text-muted">Título de la web (Navbar, Header)</label>
-                <input type="text" class="form-control form-control-cyber" id="site_title" name="site_title" 
-                       value="<?= htmlspecialchars($ajustes_actuales['site_title'] ?? '') ?>" required>
+        <!-- Columna 2: Añadir Usuario -->
+        <div class="col-lg-4">
+            <?php if ($exito_usuario): ?>
+                <div class="alert alert-success"><?= htmlspecialchars($exito_usuario) ?></div>
+            <?php endif; ?>
+            <?php if ($error_usuario): ?>
+                <div class="alert alert-danger"><?= htmlspecialchars($error_usuario) ?></div>
+            <?php endif; ?>
+            <div class="card-cyber h-100">
+                <h5 class="mb-3 fw-bold">Añadir Nuevo Usuario</h5>
+                <form method="POST" action="admin.php">
+                    <input type="hidden" name="accion" value="crear_usuario">
+                    <div class="mb-3">
+                        <label class="form-label text-muted">Nombre</label>
+                        <input type="text" class="form-control form-control-cyber" name="new_user_nombre" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted">Correo electrónico</label>
+                        <input type="email" class="form-control form-control-cyber" name="new_user_email" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label text-muted">Contraseña</label>
+                        <input type="password" class="form-control form-control-cyber" name="new_user_password" required>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label text-muted">Rol en el sistema</label>
+                        <select class="form-select form-control-cyber" name="new_user_rol">
+                            <option value="cliente">Cliente (Acceso panel básico)</option>
+                            <option value="admin">Administrador</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn-primary-cyber w-100 border-0">Crear Cuenta</button>
+                </form>
             </div>
-            <div class="mb-4">
-                <label for="contact_email" class="form-label text-muted">Email de contacto (Footer)</label>
-                <input type="email" class="form-control form-control-cyber" id="contact_email" name="contact_email" 
-                       value="<?= htmlspecialchars($ajustes_actuales['contact_email'] ?? '') ?>" required>
+        </div>
+
+        <!-- Columna 3: Cambiar Contraseña -->
+        <div class="col-lg-4">
+            <div class="card-cyber h-100">
+                <h5 class="mb-3 fw-bold">Cambiar Contraseña</h5>
+                <form method="POST" action="admin.php">
+                    <input type="hidden" name="accion" value="cambiar_password">
+                    <div class="mb-3">
+                        <label class="form-label text-muted">Seleccionar Usuario</label>
+                        <select class="form-select form-control-cyber" name="usuario_id" required>
+                            <option value="">-- Elige un usuario --</option>
+                            <?php
+                            $stmt_dropdown = $pdo->query("SELECT id, nombre, email FROM usuarios ORDER BY nombre ASC");
+                            while ($u_dd = $stmt_dropdown->fetch(PDO::FETCH_ASSOC)):
+                            ?>
+                                <option value="<?= htmlspecialchars($u_dd['id']) ?>">
+                                    <?= htmlspecialchars($u_dd['nombre']) ?> (<?= htmlspecialchars($u_dd['email']) ?>)
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label text-muted">Nueva Contraseña</label>
+                        <input type="password" class="form-control form-control-cyber" name="nueva_password" required>
+                    </div>
+                    <button type="submit" class="btn-primary-cyber w-100 border-0" style="background:var(--color-accent); color:#1a1a1a;">Actualizar Contraseña</button>
+                </form>
             </div>
-            
-            <button type="submit" class="btn-primary-cyber w-100 border-0">Guardar Ajustes</button>
-        </form>
+        </div>
+    </div>
+
+    <!-- Fila 2: Tabla de usuarios -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card-cyber">
+                <h5 class="mb-4 fw-bold">Cuentas Registradas</h5>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead style="background-color: var(--color-bg); color: var(--color-text);">
+                            <tr>
+                                <th>ID</th>
+                                <th>Nombre</th>
+                                <th>Email</th>
+                                <th>Rol</th>
+                                <th>Fecha Alta</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php
+                            $stmt_users = $pdo->query("SELECT id, nombre, email, rol, created_at FROM usuarios ORDER BY id DESC");
+                            while ($u = $stmt_users->fetch(PDO::FETCH_ASSOC)):
+                            ?>
+                            <tr>
+                                <td><?= htmlspecialchars($u['id']) ?></td>
+                                <td class="fw-bold"><?= htmlspecialchars($u['nombre']) ?></td>
+                                <td><?= htmlspecialchars($u['email']) ?></td>
+                                <td>
+                                    <?php if($u['rol'] === 'admin'): ?>
+                                        <span class="badge bg-danger">Admin</span>
+                                    <?php else: ?>
+                                        <span class="badge bg-primary">Cliente</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-muted small"><?= htmlspecialchars($u['created_at']) ?></td>
+                            </tr>
+                            <?php endwhile; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 </main>
 
