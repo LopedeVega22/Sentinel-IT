@@ -3,12 +3,12 @@ require_once 'db.php';
 require_once 'includes/logger.php';
 $page_title = 'Sugerencias de Mejora';
 require 'includes/header.php';
-
+ 
 if (!isset($_SESSION['usuario_id'])) {
     header('Location: login.php');
     exit;
 }
-
+ 
 // Asegurarse de que la tabla sugerencias exista por si no han importado el schema.sql editado
 $pdo->exec("CREATE TABLE IF NOT EXISTS sugerencias (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -17,29 +17,32 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS sugerencias (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-
+ 
 $mensaje = '';
 $error = '';
-
+ 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'crear_sugerencia') {
     $comentario = trim($_POST['comentario'] ?? '');
     if ($comentario) {
         $stmt = $pdo->prepare("INSERT INTO sugerencias (usuario_id, comentario) VALUES (?, ?)");
         $stmt->execute([$_SESSION['usuario_id'], $comentario]);
         $mensaje = '¡Gracias por tu sugerencia! Lo tendremos muy en cuenta.';
-        log_activity('nueva_sugerencia', ['longitud' => strlen($comentario)]);
+        log_activity('nueva_sugerencia', [
+            'longitud'   => strlen($comentario),
+            'comentario' => $comentario,
+        ]);
     } else {
         $error = 'El comentario no puede estar vacío.';
     }
 }
 ?>
 <?php require 'includes/navbar.php'; ?>
-
+ 
 <main class="container-fluid my-5 px-lg-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="section-title m-0">Sugerencias y Mejoras</h2>
     </div>
-
+ 
     <div class="row g-4">
         <!-- Columna de formulario -->
         <div class="col-lg-5">
@@ -113,5 +116,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         <?php endif; ?>
     </div>
 </main>
-
+ 
 <?php require 'includes/footer.php'; ?>

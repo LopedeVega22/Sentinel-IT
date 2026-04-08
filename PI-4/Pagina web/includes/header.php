@@ -30,6 +30,8 @@ $contact_email_global = $ajustes_globales['contact_email'] ?? 'info@cyberguard.c
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <!-- Estilos propios -->
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link href="css/main.css" rel="stylesheet">
 </head>
 <body>
