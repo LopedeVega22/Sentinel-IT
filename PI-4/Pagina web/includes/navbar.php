@@ -40,6 +40,11 @@ function activo($archivo) {
                             <i class="bi bi-activity me-1"></i>Panel Live
                         </a>
                     </li>
+                    <li class="nav-item ms-lg-2">
+                        <a class="nav-link btn-cyber px-3 py-2 rounded <?= activo('sugerencias.php') ?>" href="sugerencias.php">
+                            <i class="bi bi-chat-right-text me-1"></i>Sugerencias
+                        </a>
+                    </li>
                     <?php if ($_SESSION['rol'] === 'admin'): ?>
                         <li class="nav-item ms-lg-2">
                             <a class="nav-link btn-cyber px-3 py-2 rounded <?= activo('admin.php') ?>" href="admin.php" style="background:var(--color-warning);color:#000!important;border-color:var(--color-warning)">

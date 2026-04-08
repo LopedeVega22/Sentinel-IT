@@ -68,6 +68,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error_usuario = "Por favor, selecciona un usuario y escribe la nueva contraseña.";
         }
+    } elseif (isset($_POST['accion']) && $_POST['accion'] === 'eliminar_usuario') {
+        $usuario_id = $_POST['usuario_id'] ?? '';
+        
+        if ($usuario_id && $usuario_id != $_SESSION['usuario_id']) {
+            try {
+                $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = ?");
+                $stmt->execute([$usuario_id]);
+                $exito_usuario = "Usuario eliminado con éxito.";
+            } catch (PDOException $e) {
+                $error_usuario = "Error al eliminar el usuario.";
+            }
+        } else {
+            $error_usuario = "No puedes eliminar tu propia cuenta o ID inválido.";
+        }
     }
 }
 
@@ -84,15 +98,15 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 <main class="container-fluid my-5 px-lg-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2 class="section-title m-0">Panel de Administración</h2>
-        <a href="panel.php" class="btn-outline-cyber">Ver Panel de Gráficas</a>
+        <div>
+            <a href="sugerencias.php" class="btn-outline-cyber me-2"><i class="bi bi-chat-left-text me-1"></i>Ver Sugerencias</a>
+            <a href="panel.php" class="btn-outline-cyber">Ver Panel de Gráficas</a>
+        </div>
     </div>
 
     <div class="row g-4 mb-4">
         <!-- Columna 1: Ajustes -->
         <div class="col-lg-4">
-            <?php if ($mensaje): ?>
-                <div class="alert alert-success"><?= htmlspecialchars($mensaje) ?></div>
-            <?php endif; ?>
             <div class="card-cyber h-100">
                 <h5 class="mb-3 fw-bold">Ajustes Rápidos</h5>
                 <form method="POST" action="admin.php">
@@ -115,12 +129,6 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
 
         <!-- Columna 2: Añadir Usuario -->
         <div class="col-lg-4">
-            <?php if ($exito_usuario): ?>
-                <div class="alert alert-success"><?= htmlspecialchars($exito_usuario) ?></div>
-            <?php endif; ?>
-            <?php if ($error_usuario): ?>
-                <div class="alert alert-danger"><?= htmlspecialchars($error_usuario) ?></div>
-            <?php endif; ?>
             <div class="card-cyber h-100">
                 <h5 class="mb-3 fw-bold">Añadir Nuevo Usuario</h5>
                 <form method="POST" action="admin.php">
@@ -193,6 +201,7 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                                 <th>Email</th>
                                 <th>Rol</th>
                                 <th>Fecha Alta</th>
+                                <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -212,6 +221,15 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
                                     <?php endif; ?>
                                 </td>
                                 <td class="text-muted small"><?= htmlspecialchars($u['created_at']) ?></td>
+                                <td>
+                                    <?php if ($u['id'] != $_SESSION['usuario_id']): ?>
+                                        <form method="POST" action="admin.php" onsubmit="return confirm('¿Seguro que quieres eliminar este usuario?');" style="display:inline;">
+                                            <input type="hidden" name="accion" value="eliminar_usuario">
+                                            <input type="hidden" name="usuario_id" value="<?= htmlspecialchars($u['id']) ?>">
+                                            <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-trash"></i> Eliminar</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </td>
                             </tr>
                             <?php endwhile; ?>
                         </tbody>
@@ -221,5 +239,45 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         </div>
     </div>
 </main>
+
+<!-- Contenedor para Notificaciones Flotantes (Toasts) -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+    <div id="cyberToast" class="toast align-items-center text-white border-0" role="alert" aria-live="assertive" aria-atomic="true" style="background: var(--color-bg-card); border: 1px solid var(--color-primary) !important;">
+        <div class="d-flex">
+            <div class="toast-body">
+                <i class="bi bi-info-circle me-2 text-primary" id="toastIcon"></i>
+                <span id="toastMessage"></span>
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    <?php 
+    $msg_final = $mensaje ?: $exito_usuario ?: $error_usuario;
+    $tipo_msg = $error_usuario ? 'error' : 'success';
+    if ($msg_final): 
+    ?>
+    const toastElem = document.getElementById('cyberToast');
+    const toastBody = document.getElementById('toastMessage');
+    const toastIcon = document.getElementById('toastIcon');
+    
+    toastBody.textContent = "<?= addslashes($msg_final) ?>";
+    
+    if ("<?= $tipo_msg ?>" === 'error') {
+        toastElem.style.borderColor = "var(--color-danger)";
+        toastIcon.className = "bi bi-exclamation-triangle-fill me-2 text-danger";
+    } else {
+        toastElem.style.borderColor = "var(--color-primary)";
+        toastIcon.className = "bi bi-check-circle-fill me-2 text-primary";
+    }
+
+    const toast = new bootstrap.Toast(toastElem, { delay: 4000 });
+    toast.show();
+    <?php endif; ?>
+});
+</script>
 
 <?php require 'includes/footer.php'; ?>

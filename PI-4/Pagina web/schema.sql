@@ -100,16 +100,19 @@ CREATE TABLE IF NOT EXISTS ajustes (
     valor       VARCHAR(255) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Insertar roles de prueba (passwords generadas con password_hash de PHP pre-calculado, ej: 'admin123', 'cliente123')
--- admin123 => $2y$10$wE9f36P8k6b90Z3sE1S52e5F6E3Xp5L9aO7LcYvS4t5sJ4R8qF7vC
--- cliente123 => $2y$10$yB.R5rQ3XG3oT8zB8yR9V.dM4F9Y8Y6S1bQ2zI7T5E7J7T8Y9qVnC
--- Reemplazando por hashes reales generados para "admin123" y "cliente123"
-
-INSERT INTO usuarios (nombre, email, password, rol) VALUES
-('Administrador', 'admin@cyberguard.com', '$2y$10$mBqD2K9N3wO4D5I7M2M1AeG5T.jL2V9E4D1M3L6I4G2M3K4J8L1C', 'admin'),
-('Cliente Especial', 'cliente1@cyberguard.com', '$2y$10$X8O9M4L3K2J1H6G5F4D3S2A1D0G3H5J7L9Z1X2C3V4B5N6M7Q8W9', 'cliente'),
-('Cliente Básico', 'cliente2@cyberguard.com', '$2y$10$X8O9M4L3K2J1H6G5F4D3S2A1D0G3H5J7L9Z1X2C3V4B5N6M7Q8W9', 'cliente');
+INSERT INTO usuarios (id, nombre, email, password, rol) VALUES
+(1, 'Administrador', 'admin@cyberguard.com', '0192023a7bbd73250516f069df18b500', 'admin'), -- admin123
+(2, 'Cliente Especial', 'cliente1@cyberguard.com', '53609805908f9a9415f3ec61bad26027', 'cliente'), -- cliente123
+(3, 'Cliente Básico', 'cliente2@cyberguard.com', '53609805908f9a9415f3ec61bad26027', 'cliente'); -- cliente123
 
 INSERT INTO ajustes (clave, valor) VALUES 
 ('site_title', 'CyberGuard'),
 ('contact_email', 'info@cyberguard.com');
+
+CREATE TABLE IF NOT EXISTS sugerencias (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    comentario TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
