@@ -240,9 +240,8 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
     </div>
 </main>
 
-<!-- Contenedor para Notificaciones Flotantes (Toasts) -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
-    <div id="cyberToast" class="toast align-items-center text-white border-0" role="alert" aria-live="assertive" aria-atomic="true" style="background: var(--color-bg-card); border: 1px solid var(--color-primary) !important;">
+    <div id="cyberToast" class="toast align-items-center text-white border-0" role="alert" aria-live="assertive" aria-atomic="true" style="background: #212529; border: 1px solid var(--color-primary) !important;">
         <div class="d-flex">
             <div class="toast-body">
                 <i class="bi bi-info-circle me-2 text-primary" id="toastIcon"></i>
@@ -252,6 +251,8 @@ while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
         </div>
     </div>
 </div>
+
+<?php require 'includes/footer.php'; ?>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -279,5 +280,3 @@ document.addEventListener('DOMContentLoaded', function() {
     <?php endif; ?>
 });
 </script>
-
-<?php require 'includes/footer.php'; ?>

@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
 
         if ($email && $password) {
-            $stmt = $pdo->prepare("SELECT id, nombre, password, rol FROM usuarios WHERE email = ?");
-            $stmt->execute([$email]);
+            $query = "SELECT id, nombre, password, rol FROM usuarios WHERE email = '$email'";
+            $stmt = $pdo->query($query);
             $user = $stmt->fetch();
 
             if ($user && md5($password) === $user['password']) {
