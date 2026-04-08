@@ -1,5 +1,6 @@
 <?php
 require_once 'db.php';
+require_once 'includes/logger.php';
 // Header ya llama a session_start()
 $page_title = 'Panel de Administración';
 require 'includes/header.php';
@@ -23,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare("UPDATE ajustes SET valor = CASE clave WHEN 'site_title' THEN ? WHEN 'contact_email' THEN ? END WHERE clave IN ('site_title', 'contact_email')");
             $stmt->execute([$nuevo_titulo, $nuevo_email]);
             $mensaje = 'Ajustes actualizados correctamente.';
+            log_activity('ajustes_actualizados', ['titulo' => $nuevo_titulo, 'email' => $nuevo_email]);
             // Recargar variables globales
             $site_title_global = $nuevo_titulo;
             $contact_email_global = $nuevo_email;
@@ -44,6 +46,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmt = $pdo->prepare("INSERT INTO usuarios (nombre, email, password, rol) VALUES (?, ?, ?, ?)");
                     $stmt->execute([$nombre, $email, $hash, $rol]);
                     $exito_usuario = "Usuario creado con éxito.";
+                    log_activity('usuario_creado', ['nombre' => $nombre, 'email' => $email, 'rol' => $rol]);
                 }
             } catch (PDOException $e) {
                 $error_usuario = "Error de base de datos al crear el usuario.";
@@ -62,6 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$hash, $usuario_id]);
                 // Reusing success var since they render in the same column
                 $exito_usuario = "Contraseña de la cuenta actualizada exitosamente.";
+                log_activity('password_cambiada', ['usuario_id' => $usuario_id]);
             } catch (PDOException $e) {
                 $error_usuario = "Error al actualizar la contraseña en la base de datos.";
             }
@@ -76,6 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $pdo->prepare("DELETE FROM usuarios WHERE id = ?");
                 $stmt->execute([$usuario_id]);
                 $exito_usuario = "Usuario eliminado con éxito.";
+                log_activity('usuario_eliminado', ['usuario_id' => $usuario_id]);
             } catch (PDOException $e) {
                 $error_usuario = "Error al eliminar el usuario.";
             }

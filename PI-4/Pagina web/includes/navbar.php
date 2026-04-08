@@ -51,6 +51,11 @@ function activo($archivo) {
                                 <i class="bi bi-gear-fill me-1"></i>Ajustes
                             </a>
                         </li>
+                        <li class="nav-item ms-lg-2">
+                            <a class="nav-link btn-cyber px-3 py-2 rounded <?= activo('admin_logs.php') ?>" href="admin_logs.php" style="background:#444;color:#fff!important;border-color:#555">
+                                <i class="bi bi-journal-text me-1"></i>Logs MQTT
+                            </a>
+                        </li>
                     <?php endif; ?>
                     <li class="nav-item ms-lg-2">
                         <a class="nav-link px-3 py-2 text-danger" href="logout.php">

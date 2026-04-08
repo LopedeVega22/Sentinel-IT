@@ -1,5 +1,6 @@
 <?php
 require_once 'db.php';
+require_once 'includes/logger.php';
 session_start();
 
 // Si ya está logueado
@@ -23,11 +24,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['usuario_id'] = $user['id'];
                 $_SESSION['nombre'] = $user['nombre'];
                 $_SESSION['rol'] = $user['rol'];
+                
+                log_activity('login_exitoso', ['email' => $email, 'rol' => $user['rol']]);
             
             header('Location: ' . ($user['rol'] === 'admin' ? 'admin.php' : 'panel.php'));
             exit;
         } else {
             $error = 'Credenciales incorrectas.';
+            log_activity('login_fallido', ['email' => $email]);
         }
     } else {
         $error = 'Por favor, rellena todos los campos.';

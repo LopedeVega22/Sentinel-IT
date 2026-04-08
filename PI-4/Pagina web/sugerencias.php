@@ -1,5 +1,6 @@
 <?php
 require_once 'db.php';
+require_once 'includes/logger.php';
 $page_title = 'Sugerencias de Mejora';
 require 'includes/header.php';
 
@@ -26,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         $stmt = $pdo->prepare("INSERT INTO sugerencias (usuario_id, comentario) VALUES (?, ?)");
         $stmt->execute([$_SESSION['usuario_id'], $comentario]);
         $mensaje = '¡Gracias por tu sugerencia! Lo tendremos muy en cuenta.';
+        log_activity('nueva_sugerencia', ['longitud' => strlen($comentario)]);
     } else {
         $error = 'El comentario no puede estar vacío.';
     }
