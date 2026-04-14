@@ -1,11 +1,12 @@
 <?php
 require_once 'db.php';
 require_once 'includes/logger.php';
+require_once 'includes/session_control.php';
 // Header ya llama a session_start()
 $page_title = 'Panel de Administración';
 require 'includes/header.php';
 
-if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] !== 'admin') {
+if (!validar_sesion_activa($pdo) || $_SESSION['rol'] !== 'admin') {
     header('Location: login.php');
     exit;
 }

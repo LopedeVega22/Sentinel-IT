@@ -6,11 +6,12 @@
  
 require_once 'db.php';
 require_once 'includes/logger.php';
+require_once 'includes/session_control.php';
 $page_title = 'Logs de Actividad';
 require 'includes/header.php';
  
 // Protección: Solo admin
-if (!isset($_SESSION['usuario_id']) || $_SESSION['rol'] !== 'admin') {
+if (!validar_sesion_activa($pdo) || $_SESSION['rol'] !== 'admin') {
     header('Location: login.php');
     exit;
 }

@@ -1,10 +1,11 @@
 <?php
 require_once 'db.php';
+require_once 'includes/session_control.php';
 // Header ya inicia la sesión
 $page_title = 'Panel Live';
 require 'includes/header.php';
 
-if (!isset($_SESSION['usuario_id'])) {
+if (!validar_sesion_activa($pdo)) {
     header('Location: login.php');
     exit;
 }

@@ -117,3 +117,18 @@ CREATE TABLE IF NOT EXISTS sugerencias (
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS sesiones_activas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    nombre_usuario VARCHAR(100),
+    email VARCHAR(100),
+    session_php_id VARCHAR(255) NOT NULL UNIQUE,
+    ip_origen VARCHAR(45),
+    creada_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ultima_actividad DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_usuario (usuario_id),
+    INDEX idx_session (session_php_id),
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+

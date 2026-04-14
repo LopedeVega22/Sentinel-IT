@@ -25,6 +25,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['nombre'] = $user['nombre'];
                 $_SESSION['rol'] = $user['rol'];
                 
+                // Guardar sesión en BD
+                $session_id = session_id();
+                $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+                try {
+                    $stmt_save = $pdo->prepare("
+                        INSERT INTO sesiones_activas (usuario_id, nombre_usuario, email, session_php_id, ip_origen)
+                        VALUES (?, ?, ?, ?, ?)
+                    ");
+                    $stmt_save->execute([$user['id'], $user['nombre'], $email, $session_id, $ip]);
+                } catch (PDOException $e) {
+                    error_log('Error guardando sesión: ' . $e->getMessage());
+                }
+                
                 log_activity('login_exitoso', ['email' => $email, 'rol' => $user['rol']]);
             
             header('Location: ' . ($user['rol'] === 'admin' ? 'admin.php' : 'panel.php'));
