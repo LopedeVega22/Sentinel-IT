@@ -4,7 +4,7 @@
         <div class="row gy-4">
             <div class="col-md-4">
                 <h5 class="fw-bold mb-3">
-                    <i class="bi bi-shield-fill-check me-2" style="color:var(--color-primary)"></i>CyberGuard
+                    <i class="bi bi-shield-fill-check me-2" style="color:var(--color-primary)"></i>SentinelIT
                 </h5>
                 <p class="text-muted small">Protección inteligente basada en Raspberry Pi y AWS IoT Core. Detección en tiempo real, respuesta automatizada.</p>
             </div>
@@ -20,13 +20,13 @@
             </div>
             <div class="col-md-4">
                 <h6 class="fw-bold mb-3">Contacto</h6>
-                <p class="text-muted small mb-1"><i class="bi bi-envelope me-2"></i>info@cyberguard.com</p>
+                <p class="text-muted small mb-1"><i class="bi bi-envelope me-2"></i>info@SentinelIT.com</p>
                 <p class="text-muted small mb-1"><i class="bi bi-telephone me-2"></i>+34 900 000 000</p>
                 <p class="text-muted small"><i class="bi bi-geo-alt me-2"></i>España</p>
             </div>
         </div>
         <hr style="border-color:var(--color-border)">
-        <p class="text-center text-muted small mb-0">© <?= date('Y') ?> CyberGuard — Todos los derechos reservados</p>
+        <p class="text-center text-muted small mb-0">© <?= date('Y') ?> SentinelIT — Todos los derechos reservados</p>
     </div>
 </footer>
 
@@ -43,3 +43,4 @@
 
 </body>
 </html>
+

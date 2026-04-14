@@ -5,7 +5,7 @@
 // ============================================================
 
 define('DB_HOST', '127.0.0.1');     // ← Cambia si tu MySQL está en otro servidor
-define('DB_NAME', 'cyberguard');    // ← Nombre de tu base de datos
+define('DB_NAME', 'SentinelIT');    // ← Nombre de tu base de datos
 define('DB_USER', 'root');          // ← Tu usuario MySQL
 define('DB_PASS', 'C0ntr4senAs3gur4');      // ← Tu contraseña MySQL
 
@@ -43,3 +43,4 @@ try {
 </body>
 </html>');
 }
+

@@ -11,8 +11,8 @@ if (isset($pdo)) {
         }
     } catch (PDOException $e) { /* Ignorar error en header si no hay bd */ }
 }
-$site_title_global = $ajustes_globales['site_title'] ?? 'CyberGuard';
-$contact_email_global = $ajustes_globales['contact_email'] ?? 'info@cyberguard.com';
+$site_title_global = $ajustes_globales['site_title'] ?? 'SentinelIT';
+$contact_email_global = $ajustes_globales['contact_email'] ?? 'info@SentinelIT.com';
 ?>
 <!DOCTYPE html>
 <html lang="es">
@@ -35,3 +35,4 @@ $contact_email_global = $ajustes_globales['contact_email'] ?? 'info@cyberguard.c
     <link href="css/main.css" rel="stylesheet">
 </head>
 <body>
+

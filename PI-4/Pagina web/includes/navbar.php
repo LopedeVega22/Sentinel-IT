@@ -9,7 +9,7 @@ function activo($archivo) {
 <nav class="navbar navbar-expand-lg navbar-light sticky-top" id="mainNav">
     <div class="container">
         <a class="navbar-brand fw-bold" href="index.php">
-            <i class="bi bi-shield-fill-check me-2" style="color:var(--color-primary)"></i><?= htmlspecialchars($site_title_global ?? 'CyberGuard') ?>
+            <i class="bi bi-shield-fill-check me-2" style="color:var(--color-primary)"></i><?= htmlspecialchars($site_title_global ?? 'SentinelIT') ?>
         </a>
         <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu">
             <span class="navbar-toggler-icon"></span>
@@ -73,3 +73,4 @@ function activo($archivo) {
         </div>
     </div>
 </nav>
+

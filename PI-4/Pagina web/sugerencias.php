@@ -110,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
         <div class="col-lg-7 d-flex align-items-center justify-content-center">
             <div class="text-center text-muted">
                 <i class="bi bi-lightbulb" style="font-size: 5rem; opacity: 0.2;"></i>
-                <p class="mt-3">Apreciamos todos tus comentarios para seguir mejorando CyberGuard.</p>
+                <p class="mt-3">Apreciamos todos tus comentarios para seguir mejorando SentinelIT.</p>
             </div>
         </div>
         <?php endif; ?>
@@ -118,3 +118,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
 </main>
  
 <?php require 'includes/footer.php'; ?>
+

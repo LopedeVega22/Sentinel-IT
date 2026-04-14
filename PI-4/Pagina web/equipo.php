@@ -37,7 +37,7 @@ $equipo = [
     <!-- Sobre la empresa -->
     <div class="row justify-content-center mt-5">
         <div class="col-lg-7 text-center">
-            <h2 class="fw-bold mb-3">Sobre CyberGuard</h2>
+            <h2 class="fw-bold mb-3">Sobre SentinelIT</h2>
             <p class="text-muted">
                 Nacimos con el objetivo de democratizar la ciberseguridad activa usando hardware
                 accesible y tecnologías cloud modernas. Nuestro sistema basado en Raspberry Pi
@@ -49,3 +49,4 @@ $equipo = [
 </main>
 
 <?php require 'includes/footer.php'; ?>
+

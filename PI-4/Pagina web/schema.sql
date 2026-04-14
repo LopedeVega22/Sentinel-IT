@@ -1,5 +1,5 @@
 -- ============================================================
--- schema.sql — Base de datos CyberGuard
+-- schema.sql — Base de datos SentinelIT
 -- ============================================================
 -- Cómo ejecutarlo:
 --   mysql -u root -p < schema.sql
@@ -7,8 +7,8 @@
 -- ============================================================
 
 -- Crear la base de datos si no existe
-CREATE DATABASE IF NOT EXISTS cyberguard CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE cyberguard;
+CREATE DATABASE IF NOT EXISTS SentinelIT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE SentinelIT;
 
 -- ── Tabla principal de eventos ───────────────────────────────────────────────
 -- Aquí llegan todos los eventos que envían los agentes (Pi4, Pi5, etc.)
@@ -101,13 +101,13 @@ CREATE TABLE IF NOT EXISTS ajustes (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 INSERT INTO usuarios (id, nombre, email, password, rol) VALUES
-(1, 'Administrador', 'admin@cyberguard.com', '0192023a7bbd73250516f069df18b500', 'admin'), -- admin123
-(2, 'Cliente Especial', 'cliente1@cyberguard.com', '53609805908f9a9415f3ec61bad26027', 'cliente'), -- cliente123
-(3, 'Cliente Básico', 'cliente2@cyberguard.com', '53609805908f9a9415f3ec61bad26027', 'cliente'); -- cliente123
+(1, 'Administrador', 'admin@SentinelIT.com', '0192023a7bbd73250516f069df18b500', 'admin'), -- admin123
+(2, 'Cliente Especial', 'cliente1@SentinelIT.com', '53609805908f9a9415f3ec61bad26027', 'cliente'), -- cliente123
+(3, 'Cliente Básico', 'cliente2@SentinelIT.com', '53609805908f9a9415f3ec61bad26027', 'cliente'); -- cliente123
 
 INSERT INTO ajustes (clave, valor) VALUES 
-('site_title', 'CyberGuard'),
-('contact_email', 'info@cyberguard.com');
+('site_title', 'SentinelIT'),
+('contact_email', 'info@SentinelIT.com');
 
 CREATE TABLE IF NOT EXISTS sugerencias (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -116,3 +116,4 @@ CREATE TABLE IF NOT EXISTS sugerencias (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+

@@ -12,13 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $mensaje = htmlspecialchars(trim($_POST['mensaje'] ?? ''));
 
     if ($nombre && $email && $mensaje) {
-        $headers  = "From: noreply@cyberguard.com\r\n";
+        $headers  = "From: noreply@SentinelIT.com\r\n";
         $headers .= "Reply-To: $email\r\n";
         $headers .= "Content-Type: text/plain; charset=UTF-8\r\n";
 
         $cuerpo = "Nombre: $nombre\nEmail: $email\n\n$mensaje";
 
-        if (mail(EMAIL_DESTINO, "CyberGuard | $asunto", $cuerpo, $headers)) {
+        if (mail(EMAIL_DESTINO, "SentinelIT | $asunto", $cuerpo, $headers)) {
             $enviado = true;
         } else {
             $error = 'No se pudo enviar el mensaje. Inténtalo de nuevo o escríbenos directamente.';
@@ -96,7 +96,7 @@ require 'includes/navbar.php';
             <div class="card-cyber mb-3">
                 <i class="bi bi-envelope mb-2 d-block" style="color:var(--color-primary);font-size:1.4rem"></i>
                 <h6 class="fw-bold">Email</h6>
-                <p class="text-muted small mb-0">info@cyberguard.com</p>
+                <p class="text-muted small mb-0">info@SentinelIT.com</p>
             </div>
             <div class="card-cyber mb-3">
                 <i class="bi bi-clock mb-2 d-block" style="color:var(--color-primary);font-size:1.4rem"></i>
@@ -113,3 +113,4 @@ require 'includes/navbar.php';
 </main>
 
 <?php require 'includes/footer.php'; ?>
+
