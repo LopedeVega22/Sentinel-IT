@@ -6,11 +6,15 @@
  * USO DESDE LÍNEA DE COMANDOS:
  * php cerrar_sesion_admin.php --listar
  * php cerrar_sesion_admin.php --cerrar-usuario 3
+ * php cerrar_sesion_admin.php --cerrar-nombre "Admin"
+ * php cerrar_sesion_admin.php --cerrar-email admin@cybergard.com
  * php cerrar_sesion_admin.php --cerrar-sesion abc123xyz789
  * 
  * O DESDE NAVEGADOR (NO RECOMENDADO EN PRODUCCIÓN):
  * http://localhost/PI-4/Pagina%20web/cerrar_sesion_admin.php?action=listar
  * http://localhost/PI-4/Pagina%20web/cerrar_sesion_admin.php?action=cerrar_usuario&usuario_id=3
+ * http://localhost/PI-4/Pagina%20web/cerrar_sesion_admin.php?action=cerrar_nombre&nombre=Admin
+ * http://localhost/PI-4/Pagina%20web/cerrar_sesion_admin.php?action=cerrar_email&email=admin@cybergard.com
  */
 
 require_once 'db.php';
@@ -109,8 +113,87 @@ function cerrar_todas_usuario($pdo, $usuario_id) {
 }
 
 // ============================================================
-// PROCESAMIENTO
+// FUNCIÓN: Cerrar sesiones activas por nombre (incluso si usuario no existe en DB)
 // ============================================================
+function cerrar_sesiones_por_nombre_activo($pdo, $nombre) {
+    try {
+        $stmt_get = $pdo->prepare("
+            SELECT session_php_id, nombre_usuario, email, COUNT(*) as total
+            FROM sesiones_activas 
+            WHERE LOWER(nombre_usuario) = LOWER(?)
+            GROUP BY nombre_usuario
+        ");
+        $stmt_get->execute([$nombre]);
+        $usuario = $stmt_get->fetch();
+        
+        if (!$usuario) {
+            return ['error' => 'No hay sesiones activas para este nombre'];
+        }
+        
+        $stmt_get_sessions = $pdo->prepare("SELECT session_php_id FROM sesiones_activas WHERE LOWER(nombre_usuario) = LOWER(?)");
+        $stmt_get_sessions->execute([$nombre]);
+        $sesiones = $stmt_get_sessions->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($sesiones as $s) {
+            destroy_php_session_by_id($s['session_php_id']);
+        }
+
+        $stmt_delete = $pdo->prepare("DELETE FROM sesiones_activas WHERE LOWER(nombre_usuario) = LOWER(?)");
+        $stmt_delete->execute([$nombre]);
+        
+        return [
+            'success' => true,
+            'mensaje' => 'Sesiones cerradas por nombre (usuario puede no existir en DB)',
+            'usuario' => $usuario['nombre_usuario'],
+            'sesiones_cerradas' => $usuario['total']
+        ];
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+// ============================================================
+// FUNCIÓN: Cerrar todas las sesiones de un usuario por nombre
+// ============================================================
+function cerrar_por_nombre($pdo, $nombre) {
+    try {
+        // Primero intenta buscar en tabla usuarios
+        $stmt = $pdo->prepare("SELECT id, nombre, email FROM usuarios WHERE LOWER(nombre) = LOWER(?)");
+        $stmt->execute([$nombre]);
+        $usuario = $stmt->fetch();
+        
+        if ($usuario) {
+            // Usuario existe en DB, cierra por ID
+            return cerrar_todas_usuario($pdo, $usuario['id']);
+        } else {
+            // Usuario no existe, busca en sesiones activas
+            return cerrar_sesiones_por_nombre_activo($pdo, $nombre);
+        }
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
+
+// ============================================================
+// FUNCIÓN: Cerrar todas las sesiones de un usuario por email
+// ============================================================
+function cerrar_por_email($pdo, $email) {
+    try {
+        // Primero intenta buscar en tabla usuarios
+        $stmt = $pdo->prepare("SELECT id, nombre, email FROM usuarios WHERE LOWER(email) = LOWER(?)");
+        $stmt->execute([$email]);
+        $usuario = $stmt->fetch();
+        
+        if ($usuario) {
+            // Usuario existe en DB, cierra por ID
+            return cerrar_todas_usuario($pdo, $usuario['id']);
+        } else {
+            // Usuario no existe, busca en sesiones activas
+            return cerrar_sesiones_por_email_activo($pdo, $email);
+        }
+    } catch (PDOException $e) {
+        return ['error' => $e->getMessage()];
+    }
+}
 
 if ($is_cli) {
     // ========== MODO CLI (línea de comandos) ==========
@@ -123,10 +206,14 @@ if ($is_cli) {
         echo "\nUSOː\n";
         echo "  php cerrar_sesion_admin.php --listar\n";
         echo "  php cerrar_sesion_admin.php --cerrar-usuario <usuario_id>\n";
+        echo "  php cerrar_sesion_admin.php --cerrar-nombre <nombre_usuario>\n";
+        echo "  php cerrar_sesion_admin.php --cerrar-email <email_usuario>\n";
         echo "  php cerrar_sesion_admin.php --cerrar-sesion <session_id>\n";
         echo "\nEjemplos:\n";
         echo "  php cerrar_sesion_admin.php --listar\n";
         echo "  php cerrar_sesion_admin.php --cerrar-usuario 3\n";
+        echo "  php cerrar_sesion_admin.php --cerrar-nombre 'Admin'\n";
+        echo "  php cerrar_sesion_admin.php --cerrar-email admin@cybergard.com\n";
         echo "  php cerrar_sesion_admin.php --cerrar-sesion abc123xyz789\n";
         exit(1);
     }
@@ -144,7 +231,7 @@ if ($is_cli) {
                 exit(0);
             }
             
-            echo "📊 SESIONES ACTIVAS (" . count($sesiones) . ")\n";
+            echo " SESIONES ACTIVAS (" . count($sesiones) . ")\n";
             echo str_repeat("=", 100) . "\n";
             echo sprintf(
                 "%-3s %-4s %-20s %-30s %-15s %-20s %s\n",
@@ -176,6 +263,46 @@ if ($is_cli) {
             }
             
             $resultado = cerrar_todas_usuario($pdo, $usuario_id);
+            
+            if (isset($resultado['error'])) {
+                echo " Error: {$resultado['error']}\n";
+                exit(1);
+            }
+            
+            echo " {$resultado['mensaje']}\n";
+            echo "   Usuario: {$resultado['usuario']}\n";
+            echo "   Sesiones cerradas: {$resultado['sesiones_cerradas']}\n";
+            break;
+        
+        case '--cerrar-nombre':
+            $nombre = $argv[2] ?? null;
+            if (!$nombre) {
+                echo " Error: Especifica nombre de usuario\n";
+                echo "USO: php cerrar_sesion_admin.php --cerrar-nombre <nombre_usuario>\n";
+                exit(1);
+            }
+            
+            $resultado = cerrar_por_nombre($pdo, $nombre);
+            
+            if (isset($resultado['error'])) {
+                echo " Error: {$resultado['error']}\n";
+                exit(1);
+            }
+            
+            echo " {$resultado['mensaje']}\n";
+            echo "   Usuario: {$resultado['usuario']}\n";
+            echo "   Sesiones cerradas: {$resultado['sesiones_cerradas']}\n";
+            break;
+        
+        case '--cerrar-email':
+            $email = $argv[2] ?? null;
+            if (!$email) {
+                echo " Error: Especifica email de usuario\n";
+                echo "USO: php cerrar_sesion_admin.php --cerrar-email <email_usuario>\n";
+                exit(1);
+            }
+            
+            $resultado = cerrar_por_email($pdo, $email);
             
             if (isset($resultado['error'])) {
                 echo " Error: {$resultado['error']}\n";
@@ -238,6 +365,28 @@ if ($is_cli) {
                 exit;
             }
             $resultado = cerrar_todas_usuario($pdo, $usuario_id);
+            echo json_encode($resultado);
+            break;
+        
+        case 'cerrar_nombre':
+            $nombre = $_GET['nombre'] ?? null;
+            if (!$nombre) {
+                http_response_code(400);
+                echo json_encode(['error' => 'nombre requerido']);
+                exit;
+            }
+            $resultado = cerrar_por_nombre($pdo, $nombre);
+            echo json_encode($resultado);
+            break;
+        
+        case 'cerrar_email':
+            $email = $_GET['email'] ?? null;
+            if (!$email) {
+                http_response_code(400);
+                echo json_encode(['error' => 'email requerido']);
+                exit;
+            }
+            $resultado = cerrar_por_email($pdo, $email);
             echo json_encode($resultado);
             break;
         
