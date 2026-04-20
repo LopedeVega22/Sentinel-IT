@@ -1,0 +1,35 @@
+aws:
+  endpoint: "aj4wsdnimoej8-ats.iot.eu-north-1.amazonaws.com"
+  client_id: "Pi5-dani"
+
+  cert_path: "./certificados/Pi5-dani.cert.pem"
+  key_path: "./certificados/Pi5-dani.private.key"
+  root_ca: "./certificados/root-CA.crt"
+
+mqtt:
+  topic_subscribe_logs: "seguridad/#"
+  topic_actions_base: "seguridad/acciones/"
+
+database:
+  db_path: "data/soc_data.db"
+
+web:
+  host: "0.0.0.0"
+  port: 5000
+
+agent:
+  model_name: "gemini-2.5-flash"
+
+logging:
+  file_path: "/tmp/coordinator_soc.log"
+  level: "INFO"
+  max_bytes: 5242880  
+  backup_count: 3
+
+retention:
+  max_days: 30          
+  purge_on_insert: true 
+
+batch:
+  max_size: 10          # Flush when this many logs accumulate
+  flush_interval: 15    # Flush every N seconds regardless of queue size

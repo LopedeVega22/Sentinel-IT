@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "iot:Connect",
+      "Resource": [
+        "arn:aws:iot:eu-north-1:582997418897:client/${iot:Connection.Thing.ThingName}",
+        "arn:aws:iot:eu-north-1:582997418897:client/Pi5-dani",
+        "arn:aws:iot:eu-north-1:582997418897:client/Pi4-felix",
+        "arn:aws:iot:eu-north-1:582997418897:client/Dashboard-SOC-Pi5"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Publish",
+        "iot:Receive",
+        "iot:RetainPublish"
+      ],
+      "Resource": "arn:aws:iot:eu-north-1:582997418897:topic/seguridad/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iot:Subscribe",
+      "Resource": "arn:aws:iot:eu-north-1:582997418897:topicfilter/seguridad/*"
+    }
+  ]
+}
