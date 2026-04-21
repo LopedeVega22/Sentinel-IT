@@ -226,7 +226,8 @@ def _serialize_logs(data):
             "severity": row[5],
             "verdict": row[6],
             "action": row[7],
-            "timestamp": row[8] if len(row) > 8 else ""
+            "mitigation_status": row[8] if len(row) > 8 else "",
+            "timestamp": row[9] if len(row) > 9 else ""
         })
     return result
 
