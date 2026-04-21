@@ -42,7 +42,7 @@ env/
 .env_folder/
 
 # Pruebas (pytest, coverage)
-tests/
+# tests/  # Comentado temporalmente para permitir subir los scripts de simulación reales al repo
 .pytest_cache/
 .coverage
 htmlcov/
