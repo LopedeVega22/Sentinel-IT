@@ -507,7 +507,7 @@
         /* Column widths — fixed proportions */
         col.col-time     { width: 12%; }
         col.col-target   { width: 12%; }
-        col.col-severity { width: 9%; }
+        col.col-severity { width: 7%; }
         col.col-ip       { width: 10%; }
         col.col-verdict  { width: 30%; }
         col.col-log      { width: 10%; }
@@ -1443,9 +1443,12 @@
         }
 
         function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text || '';
-            return div.innerHTML;
+            if (!text) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
         }
 
         // ---------- JSON Syntax Highlighting ----------
