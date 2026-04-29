@@ -1,120 +1,138 @@
-import asyncio
+"""
+Test del ciclo de Feedback: valida que las herramientas del SOC
+registran correctamente los incidentes y actualizan la mitigación
+en la base de datos SQLite.
+
+Este test NO necesita conexión a Gemini ni a AWS IoT Core.
+Llama directamente a las funciones (tools) del agente para
+verificar la lógica de negocio de forma offline.
+"""
 import os
 import sys
-import json
 import sqlite3
+import json
 import time
-from dotenv import load_dotenv
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
+# ── Paths ────────────────────────────────────────────────────────────
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from google.adk.runners import Runner
-from google.adk.sessions import InMemorySessionService
-from agents.triage_agent.triage_agent import triage_agent
-from agents.feedback_agent.feedback_agent import feedback_agent
-from tools.iot_tools import init_iot_tools
+DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "soc_data.db"))
 
-# Configuracion del entorno de prueba
-load_dotenv()
-os.environ["ADK_TEST_MODE"] = "true"
 
-DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'soc_data.db'))
-
+# ── Mock del cliente MQTT ────────────────────────────────────────────
 class MockIotClient:
-    """Cliente IoT simulado para interceptar comandos dirigidos a la Pi 4."""
+    """Simula el cliente MQTT para interceptar comandos sin red."""
     def __init__(self):
         self.commands_sent = []
 
     def publish(self, topic, payload):
-        print(f"\n[MOCK MQTT] Interceptado en {topic}: {payload}")
-        self.commands_sent.append(payload)
+        self.commands_sent.append({"topic": topic, "payload": payload})
+        print(f"  [MOCK MQTT] Publicado en {topic}: {json.dumps(payload, ensure_ascii=False)[:120]}...")
 
-async def test_feedback_agent(session_service, runner_fb, session, device, status, output):
-    print(f"\n--- INICIO DE PRUEBA FEEDBACK: {status.upper()} ---")
-    mock_feedback = f"""
-sensor: {device}
-command: echo 'test'
-status: {status}
-output: {output}
-"""
-    from google.genai import types
-    
-    async for event in runner_fb.run_async(
-        user_id="test_user",
-        session_id=session.id,
-        new_message=types.Content(role="user", parts=[types.Part.from_text(text=mock_feedback)])
-    ):
-        if event.content and event.content.parts:
-            print(f"[FEEDBACK AGENTE]: {event.content.parts[0].text}")
-            
-        calls = event.get_function_calls()
-        if calls:
-            for call in calls:
-                print(f"[FEEDBACK HERRAMIENTA - LLAMADA]: {call.name} con args: {call.args}")
-        
-        resps = event.get_function_responses()
-        if resps:
-            for resp in resps:
-                print(f"[FEEDBACK HERRAMIENTA - RESPUESTA]: {resp}")
-                
-    print(f"--- FIN DE PRUEBA FEEDBACK: {status.upper()} ---")
+    def subscribe(self, topic, callback):
+        print(f"  [MOCK MQTT] Suscrito a {topic} (no-op)")
 
-async def run_test():
-    print("==================================================================")
-    print("   🛡️  TEST DE CICLO DE FEEDBACK (TRIAGE -> PI 4 -> FEEDBACK)  ")
-    print("==================================================================")
-    
+
+# ── Helpers ──────────────────────────────────────────────────────────
+def query_db(sql, params=()):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return rows
+
+
+def print_section(title):
+    print(f"\n{'=' * 60}")
+    print(f"  {title}")
+    print(f"{'=' * 60}")
+
+
+# ── Test principal ───────────────────────────────────────────────────
+def run_test():
+    print_section("🛡️  TEST OFFLINE – Ciclo de Feedback SOC")
+
+    # Importar herramientas después de fijar el path
+    from tools.iot_tools import init_iot_tools, execute_remote_command
+    from tools.db_tools import register_alert, update_mitigation_status
+
+    # 1. Inyectar cliente mock
     mock_iot = MockIotClient()
     init_iot_tools(mock_iot)
-    
-    session_service = InMemorySessionService()
-    session_triage = await session_service.create_session(user_id="test_user", app_name="test_app_triage")
-    runner_triage = Runner(agent=triage_agent, session_service=session_service, app_name="test_app_triage")
-    
-    session_fb = await session_service.create_session(user_id="test_user", app_name="test_app_fb")
-    runner_fb = Runner(agent=feedback_agent, session_service=session_service, app_name="test_app_fb")
-    
-    from google.genai import types
-    
-    # 1. Provocar al agente Triage para que genere una respuesta inicial
-    print("\n[PASO 1] Provocando al Triage Agent para que envíe un comando a la Pi 4...")
-    log_ataque = """{
-  "evento": "RCE_ATTACK",
-  "prioridad": "ALTA",
-  "sensor": "Pi4-Test",
-  "timestamp": "2026-04-27 20:00:00",
-  "ip": "10.0.0.55",
-  "usuario": "www-data",
-  "email_raw": "POST /api/exec HTTP/1.1",
-  "patron": "Command Injection"
-}"""
-    user_input = f"Analiza este log:\nDispositivo Origen: Pi4-Test\nLog crudo: '{log_ataque}'\nDebes usar execute_remote_command para detener el servicio nginx."
-    
-    async for event in runner_triage.run_async(
-        user_id="test_user",
-        session_id=session_triage.id,
-        new_message=types.Content(role="user", parts=[types.Part.from_text(text=user_input)])
-    ):
-        pass # Solo esperamos a que llame a la herramienta
-        
-    print("\n[PASO 2] Simulando que la Pi 4 ejecuta el comando y responde que TODO FUE BIEN (Válido)...")
-    await test_feedback_agent(session_service, runner_fb, session_fb, "Pi4-Test", "success", "nginx.service successfully stopped.")
-    
-    print("\n[PASO 3] Simulando que la Pi 4 ejecuta otro comando y da ERROR (No válido), obligando a corregir...")
-    await test_feedback_agent(session_service, runner_fb, session_fb, "Pi4-Test", "error", "Failed to stop nginx: Unit nginx.service not loaded.")
-    
-    print("\n[PASO 4] Comprobando la Base de Datos...")
+    print("\n[PASO 1] Cliente MQTT mock inyectado ✔")
+
+    # 2. Registrar una alerta simulada
+    print("\n[PASO 2] Registrando alerta de ataque RCE...")
+    result_alert = register_alert(
+        dispositivo="Pi4-Test",
+        tipo_alerta="RCE_ATTACK",
+        descripcion="Inyección de comando detectada desde 10.0.0.55",
+        log_original='{"evento":"RCE_ATTACK","ip":"10.0.0.55","patron":"Command Injection"}',
+    )
+    print(f"  Resultado: {result_alert}")
+
+    # 3. Enviar un comando remoto (se intercepta por el mock)
+    print("\n[PASO 3] Enviando comando remoto a Pi4-Test...")
+    result_cmd = execute_remote_command(
+        device="Pi4-Test",
+        command="sudo systemctl stop nginx",
+    )
+    print(f"  Resultado: {result_cmd}")
+
+    # Verificar que el mock recibió el comando
+    if mock_iot.commands_sent:
+        print(f"  ✔ Mock interceptó {len(mock_iot.commands_sent)} comando(s)")
+    else:
+        print("  ❌ El mock NO interceptó ningún comando")
+
+    # 4. Simular respuesta exitosa del sensor → actualizar mitigación
+    print("\n[PASO 4] Simulando feedback exitoso → update_mitigation_status...")
+    result_update = update_mitigation_status(
+        dispositivo="Pi4-Test",
+        status="success",
+        output="nginx.service successfully stopped.",
+    )
+    print(f"  Resultado: {result_update}")
+
+    # 5. Simular respuesta de error → actualizar mitigación
+    print("\n[PASO 5] Simulando feedback con error → update_mitigation_status...")
+    result_err = update_mitigation_status(
+        dispositivo="Pi4-Test",
+        status="error",
+        output="Failed to stop nginx: Unit nginx.service not loaded.",
+    )
+    print(f"  Resultado: {result_err}")
+
+    # 6. Consultar la base de datos
+    print_section("📊  Estado de la Base de Datos")
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, dispositivo, log_original, accion_tomada, estado_mitigacion FROM logs ORDER BY id DESC LIMIT 5")
-        rows = cursor.fetchall()
-        print("\n--- ÚLTIMOS 5 REGISTROS EN LA BASE DE DATOS ---")
-        for row in rows:
-            print(f"ID: {row[0]} | Dispositivo: {row[1]} | Accion: {row[3]} | Estado: {row[4]}")
-        conn.close()
+        rows = query_db(
+            "SELECT id, dispositivo, tipo_alerta, accion_tomada, estado_mitigacion "
+            "FROM logs ORDER BY id DESC LIMIT 5"
+        )
+        if rows:
+            for r in rows:
+                print(
+                    f"  ID={r['id']}  disp={r['dispositivo']}  "
+                    f"tipo={r['tipo_alerta']}  accion={r['accion_tomada']}  "
+                    f"estado={r['estado_mitigacion']}"
+                )
+        else:
+            print("  (sin registros)")
     except Exception as e:
-        print(f"Error al leer la base de datos: {e}")
+        print(f"  Error consultando DB: {e}")
+
+    # 7. Resultado final
+    print_section("RESULTADO FINAL")
+    ok = (
+        "correctamente" in str(result_alert).lower() or "registrado" in str(result_alert).lower()
+    )
+    print(f"  register_alert:          {'✅' if ok else '⚠️'}  {result_alert[:80]}")
+    print(f"  execute_remote_command:  {'✅' if mock_iot.commands_sent else '❌'}  mock={len(mock_iot.commands_sent)} cmd(s)")
+    print(f"  update_mitigation(ok):   {result_update[:80]}")
+    print(f"  update_mitigation(err):  {result_err[:80]}")
+    print()
+
 
 if __name__ == "__main__":
-    asyncio.run(run_test())
+    run_test()

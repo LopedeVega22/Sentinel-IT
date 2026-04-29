@@ -1,137 +1,186 @@
+"""
+Test E2E de comunicación MQTT para el bucle de feedback SOC.
+
+Este test se ejecuta DENTRO del contenedor Docker del coordinador y
+reutiliza la conexión MQTT existente del coordinador para evitar
+conflictos de client-ID con AWS IoT Core (solo permite 1 conexión
+por certificado).
+
+Flujo:
+  1. Se suscribe al topic de salida del sensor (comandos/+/out).
+  2. Se suscribe al topic de acciones del sensor (comandos/Pi4-Felix)
+     actuando como "Mock Pi 4" que responde automáticamente.
+  3. Publica un comando seguro y espera la respuesta simulada.
+  4. Publica un comando peligroso (blacklist) y espera el bloqueo.
+  5. Valida las respuestas recibidas.
+"""
 import yaml
 import sys
 import os
 import time
 import json
 import threading
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
+
 from aws_connector import AWSMqttClient
 
-# Ajuste del path para importacion de modulos locales
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
+# ── Almacén de feedback ──────────────────────────────────────────────
 respuestas_recibidas = []
 
-def on_message_received(topic, payload, **kwargs):
-    """Callback para almacenar respuestas del sensor (simuladas o reales)."""
+def on_feedback(topic, payload, **kwargs):
+    """Callback que almacena las respuestas del sensor (simuladas)."""
     try:
-        data = json.loads(payload.decode('utf-8'))
+        data = json.loads(payload.decode("utf-8"))
         respuestas_recibidas.append(data)
         print(f"\n[<-- FEEDBACK RECIBIDO] Topic: {topic}")
         print(f"    - Estado: {data.get('status')}")
         print(f"    - Salida: {data.get('output', '').strip()}")
     except Exception as e:
-        print(f"[ERROR] Error decodificando respuesta: {e}")
+        print(f"[ERROR] Decodificando respuesta: {e}")
 
-def mock_pi4_behavior(client, topic_acciones, topic_out):
-    """Simula el comportamiento de la Pi 4 para poder testear sin conexión física."""
-    def on_mock_action(topic, payload, **kwargs):
+
+# ── Mock de la Pi 4 ─────────────────────────────────────────────────
+BLACKLIST = ["rm -rf", "mkfs", "dd if=", ":(){", "shutdown", "reboot"]
+
+def mock_pi4(client, topic_comandos, topic_out):
+    """
+    Se suscribe al topic de comandos dirigidos a la Pi 4 y responde
+    automáticamente como si fuera el sensor real.
+    """
+    def handler(topic, payload, **kwargs):
         try:
-            datos = json.loads(payload.decode('utf-8'))
+            datos = json.loads(payload.decode("utf-8"))
             comando = datos.get("comando", "")
-            print(f"\n[MOCK Pi 4] Recibida peticion de comando: {comando}")
-            
-            # Simular blacklist
-            if "rm -rf" in comando:
+            print(f"\n[MOCK Pi4] Recibida orden: {comando}")
+
+            # Evaluar blacklist
+            bloqueado = any(b in comando for b in BLACKLIST)
+            if bloqueado:
                 status = "blocked"
-                output = "DENEGADA por seguridad (Blacklist simulada)"
+                output = "DENEGADA: comando en Blacklist de seguridad"
             else:
                 status = "success"
-                output = "Simulacion de STDOUT exitosa"
-                
-            feedback_payload = {
+                output = f"(simulado) $ {comando}\n-- ejecución OK --"
+
+            feedback = {
                 "sensor": "Pi4-Felix",
                 "accion": datos.get("accion"),
                 "comando": comando,
                 "status": status,
-                "output": output
+                "output": output,
             }
-            time.sleep(1) # Simular tiempo de ejecucion
-            print(f"[MOCK Pi 4] Enviando feedback a {topic_out}")
-            client.publish(topic_out, feedback_payload)
+            time.sleep(0.5)
+            print(f"[MOCK Pi4] Publicando feedback → {topic_out}  status={status}")
+            client.publish(topic_out, feedback)
         except Exception as e:
             print(f"[MOCK ERROR] {e}")
-            
-    client.subscribe(topic_acciones, on_mock_action)
-    print(f"[MOCK Pi 4] Iniciado y escuchando en {topic_acciones}")
 
+    client.subscribe(topic_comandos, handler)
+    print(f"[MOCK Pi4] Escuchando en {topic_comandos}")
+
+
+# ── Test principal ───────────────────────────────────────────────────
 def test():
-    """Prueba E2E Funcional: Envio de comandos y validacion de respuesta (con Mock de Pi 4)."""
     try:
         with open("config.yml", "r") as f:
             config = yaml.safe_load(f)
-        
-        ENDPOINT = config['aws']['endpoint']
-        CLIENT_ID = "Pi5-dani-Tester"
-        CERT_PATH = config['aws']['cert_path']
-        KEY_PATH = config['aws']['key_path']
-        ROOT_CA = config['aws']['root_ca']
-        TOPIC_ACTIONS_BASE = config['mqtt']['topic_actions_base']
-        
+
+        ENDPOINT   = config["aws"]["endpoint"]
+        CERT_PATH  = config["aws"]["cert_path"]
+        KEY_PATH   = config["aws"]["key_path"]
+        ROOT_CA    = config["aws"]["root_ca"]
     except Exception as e:
-        print(f"[ERROR] Fallo al cargar configuracion: {e}")
+        print(f"[ERROR] Cargando config: {e}")
         return
+
+    # Usar un client-ID ÚNICO distinto al coordinador para no desplazarlo
+    CLIENT_ID = f"E2E-Tester-{int(time.time()) % 10000}"
 
     client = AWSMqttClient(
         endpoint=ENDPOINT,
         cert_path=CERT_PATH,
         key_path=KEY_PATH,
         root_ca_path=ROOT_CA,
-        client_id=CLIENT_ID
+        client_id=CLIENT_ID,
     )
-    
+
+    TARGET = "Pi4-Felix"
+    topic_comandos = f"comandos/{TARGET}"
+    topic_out      = f"comandos/{TARGET}/out"
+
     try:
-        print("[INFO] Conectando a AWS IoT Core para test E2E...")
+        print("=" * 60)
+        print("  🛡️  TEST E2E – Bucle de Feedback SOC (Mock Pi4)")
+        print("=" * 60)
+        print(f"\n[INFO] Conectando con client-id={CLIENT_ID} ...")
         client.connect()
-        
-        target = "Pi4-Felix"
-        topic_acciones = f"{TOPIC_ACTIONS_BASE}{target}"
-        topic_out = f"comandos/{target}/out"
-        
-        # Iniciar el MOCK de la Pi 4 en background (se registra como callback en el mismo cliente)
-        mock_pi4_behavior(client, topic_acciones, topic_out)
-        
-        # Suscribir al topic donde el sensor mandara la respuesta
-        client.subscribe("comandos/+/out", on_message_received)
-        print("[INFO] Suscrito a comandos/+/out esperando respuestas.")
-        time.sleep(2) # Dar tiempo para suscribirse
-        
-        # Caso 1: Comando de diagnostico seguro
-        good_command = {
+
+        # 1. Registrar Mock de la Pi 4
+        mock_pi4(client, topic_comandos, topic_out)
+
+        # 2. Escuchar las respuestas
+        client.subscribe("comandos/+/out", on_feedback)
+        print("[INFO] Suscrito a comandos/+/out")
+        time.sleep(2)
+
+        # ── Caso 1: comando seguro ───────────────────────────────
+        cmd_safe = {
             "accion": "ejecutar_comando",
-            "comando": "ls -l /tmp",
-            "motivo": "Verificacion de integracion segura"
+            "comando": "ls -la /tmp",
+            "motivo": "Diagnóstico de integridad",
         }
-        print(f"\n[--> ENVIO] Comando seguro a {topic_acciones}: ls -l /tmp")
-        client.publish(topic_acciones, good_command)
-        
-        # Esperar la respuesta (maximo 5 segundos)
-        print("[INFO] Esperando ejecucion en el sensor (Mock Pi 4)...")
+        print(f"\n[--> ENVÍO] Comando seguro → {topic_comandos}")
+        client.publish(topic_comandos, cmd_safe)
+        print("[INFO] Esperando respuesta del Mock (5 s) ...")
         time.sleep(5)
-        
-        # Caso 2: Comando restringido (debe ser bloqueado por la politica del sensor)
-        bad_command = {
+
+        # ── Caso 2: comando peligroso ────────────────────────────
+        cmd_bad = {
             "accion": "ejecutar_comando",
             "comando": "sudo rm -rf /etc",
-            "motivo": "Verificacion de politicas de seguridad"
+            "motivo": "Verificar blacklist",
         }
-        print(f"\n[--> ENVIO] Comando restringido a {topic_acciones}: sudo rm -rf /etc")
-        client.publish(topic_acciones, bad_command)
-        
-        # Esperar la respuesta
-        print("[INFO] Esperando evaluacion en el sensor (Mock Pi 4)...")
+        print(f"\n[--> ENVÍO] Comando peligroso → {topic_comandos}")
+        client.publish(topic_comandos, cmd_bad)
+        print("[INFO] Esperando respuesta del Mock (5 s) ...")
         time.sleep(5)
-        
-        print("\n================ RESUMEN DEL TEST E2E ================")
+
+        # ── Resultado ────────────────────────────────────────────
+        print("\n" + "=" * 60)
+        print("  RESUMEN DEL TEST E2E")
+        print("=" * 60)
+
         if len(respuestas_recibidas) >= 2:
-            print("[SUCCESS] El sensor simulado respondio a ambos comandos correctamente.")
-            print("Se ha validado el bus MQTT y la logica de comunicacion sin necesidad de la Pi 4 fisica.")
+            safe_ok = any(r.get("status") == "success" for r in respuestas_recibidas)
+            block_ok = any(r.get("status") == "blocked" for r in respuestas_recibidas)
+            if safe_ok and block_ok:
+                print("[✅ SUCCESS] Ambos escenarios validados correctamente:")
+                print("   - Comando seguro  → ejecutado (success)")
+                print("   - Comando peligroso → bloqueado (blocked)")
+            else:
+                print("[⚠️  PARCIAL] Se recibieron 2 respuestas pero los estados no coinciden.")
         else:
-            print(f"[WARNING] Solo se recibieron {len(respuestas_recibidas)} respuestas de 2 esperadas.")
-            
+            print(f"[❌ FAIL] Solo {len(respuestas_recibidas)}/2 respuestas recibidas.")
+
+        for i, r in enumerate(respuestas_recibidas, 1):
+            print(f"\n  Respuesta #{i}:")
+            print(f"    sensor:  {r.get('sensor')}")
+            print(f"    comando: {r.get('comando')}")
+            print(f"    status:  {r.get('status')}")
+            print(f"    output:  {r.get('output', '').strip()}")
+
     except Exception as e:
-        print(f"[ERROR] Fallo en la simulacion: {e}")
+        print(f"[ERROR] {e}")
     finally:
-        print("[INFO] Fin de la prueba.")
+        try:
+            client.connection.disconnect().result()
+            print("\n[INFO] Desconectado limpiamente.")
+        except:
+            pass
+        print("[INFO] Fin de la prueba.\n")
+
 
 if __name__ == "__main__":
     test()
