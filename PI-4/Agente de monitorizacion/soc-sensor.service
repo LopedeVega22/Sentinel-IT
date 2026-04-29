@@ -1,19 +1,32 @@
 [Unit]
-Description=SOC Node Sensor - Lector de logs SSH en vivo
+# Nombre descriptivo del servicio que aparece en journalctl y systemctl status
+Description=SOC Node Sensor - Agente de monitorización Pi4-Felix
+# No arrancar hasta que la red esté disponible (necesitamos conexión con AWS)
 After=network.target
 
 [Service]
+# Simple = el proceso principal ES el agente, systemd lo vigila directamente
 Type=simple
-# Cambiar 'pi' por tu nombre de usuario si procede
+
+# Ejecutar como root para poder leer /var/log/auth.log y usar iptables
 User=root
-# Asegurar la ruta donde tenéis clonado u hospedado el archivo
-WorkingDirectory=/home/pi/TFG/pi4-felix/
-ExecStart=/usr/bin/python3 /home/pi/TFG/pi4-felix/agente_monitor.py
+
+# Directorio de trabajo: aquí debe estar config.yml y los certificados
+WorkingDirectory=/home/lopex/pi4-felix/
+
+# Usar el Python del entorno virtual, no el del sistema
+ExecStart=/home/lopex/pi4-felix/env/bin/python /home/lopex/pi4-felix/agente_monitor3.py
+
+# Reiniciar solo si el script falla con error (no si lo paras tú con systemctl stop)
 Restart=on-failure
+
+# Esperar 10 segundos antes de reiniciar (evita bucles de reinicios rápidos)
 RestartSec=10
-# Evita que el servicio use el log estándar y que todo el output no se pierda en el limbo
+
+# Redirigir la salida estándar al journal (ver con: journalctl -u soc-sensor -f)
 StandardOutput=journal
 StandardError=journal
 
 [Install]
+# Arrancar automáticamente cuando el sistema esté en modo multiusuario (arranque normal)
 WantedBy=multi-user.target
