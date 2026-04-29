@@ -20,8 +20,8 @@ require 'includes/navbar.php';
                     agentes distribuidos y AWS IoT Core. Sin intervención humana.
                 </p>
                 <div class="d-flex flex-wrap gap-3">
-                    <a href="servicios.php"     class="btn-primary-cyber">Ver servicios</a>
-                    <a href="como-funciona.php" class="btn-outline-cyber">Cómo funciona</a>
+                    <a href="/servicios.php"     class="btn-primary-cyber">Ver servicios</a>
+                    <a href="/como-funciona.php" class="btn-outline-cyber">Cómo funciona</a>
                 </div>
             </div>
             <div class="col-lg-5 d-none d-lg-flex justify-content-center mt-5 mt-lg-0">
@@ -52,7 +52,7 @@ require 'includes/navbar.php';
 </section>
 
 <!-- PROPUESTA DE VALOR -->
-<section class="py-6 section-alt py-5">
+<section class="py-6 section-dark py-5">
     <div class="container">
         <div class="text-center mb-5">
             <h2 class="section-title">Por qué elegirnos</h2>
@@ -116,11 +116,11 @@ require 'includes/navbar.php';
 </section>
 
 <!-- CTA FINAL -->
-<section class="py-5 section-alt">
+<section class="py-5 section-dark">
     <div class="container text-center py-3">
         <h2 class="section-title mb-3">¿Listo para proteger tu infraestructura?</h2>
         <p class="text-muted mb-4">Contacta con nosotros y te explicamos cómo desplegar el sistema en tu entorno.</p>
-        <a href="contacto.php" class="btn-primary-cyber">Hablar con el equipo</a>
+        <a href="/contacto.php" class="btn-primary-cyber">Hablar con el equipo</a>
     </div>
 </section>
 

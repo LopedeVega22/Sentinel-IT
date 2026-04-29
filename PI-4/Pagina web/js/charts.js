@@ -3,13 +3,13 @@
 
 // Colores globales para mantener coherencia
 const COLORS = {
-    primary:  '#0056D2',
-    success:  '#00875A',
-    danger:   '#DC3545',
-    warning:  '#FFC107',
-    surface:  '#FFFFFF',
-    text:     '#212529',
-    muted:    '#6C757D',
+    primary:  '#00D4FF',
+    success:  '#00C48C',
+    danger:   '#FF3B5C',
+    warning:  '#FFB800',
+    surface:  '#111827',
+    text:     '#E8EAF0',
+    muted:    '#8892A4',
 };
 
 // Opciones base compartidas por todas las gráficas
@@ -24,11 +24,11 @@ const baseOptions = {
     scales: {
         x: {
             ticks: { color: COLORS.muted },
-            grid:  { color: 'rgba(0,0,0,0.05)' }
+            grid:  { color: 'rgba(255,255,255,0.05)' }
         },
         y: {
             ticks: { color: COLORS.muted },
-            grid:  { color: 'rgba(0,0,0,0.05)' }
+            grid:  { color: 'rgba(255,255,255,0.05)' }
         }
     }
 };
@@ -44,7 +44,7 @@ if (ctxLinea) {
                 label: 'Eventos detectados',
                 data: totalesData,
                 borderColor: COLORS.primary,
-                backgroundColor: 'rgba(0,86,210,0.07)',
+                backgroundColor: 'rgba(0,212,255,0.07)',
                 fill: true,
                 tension: 0.4,
                 pointBackgroundColor: COLORS.primary,
@@ -94,9 +94,9 @@ if (ctxBarras) {
                 label: 'Ataques por servicio',
                 data: serviciosData,
                 backgroundColor: [
-                    'rgba(0,86,210,0.7)',
-                    'rgba(0,135,90,0.7)',
-                    'rgba(255,193,7,0.7)',
+                    'rgba(0,212,255,0.7)',
+                    'rgba(0,196,140,0.7)',
+                    'rgba(255,184,0,0.7)',
                 ],
                 borderRadius: 6,
             }]
@@ -115,10 +115,10 @@ if (ctxExito) {
             datasets: [{
                 data: [exitoPorcentaje],
                 backgroundColor: exitoPorcentaje >= 80
-                    ? 'rgba(0,135,90,0.7)'
+                    ? 'rgba(0,196,140,0.7)'
                     : exitoPorcentaje >= 50
-                        ? 'rgba(255,193,7,0.7)'
-                        : 'rgba(220,53,69,0.7)',
+                        ? 'rgba(255,184,0,0.7)'
+                        : 'rgba(255,59,92,0.7)',
                 borderRadius: 8,
             }]
         },
@@ -126,7 +126,7 @@ if (ctxExito) {
             ...baseOptions,
             indexAxis: 'y',
             scales: {
-                x: { min: 0, max: 100, ticks: { color: COLORS.muted, callback: v => v + '%' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                x: { min: 0, max: 100, ticks: { color: COLORS.muted, callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } },
                 y: { ticks: { color: COLORS.muted }, grid: { display: false } }
             },
             plugins: {
