@@ -29,6 +29,8 @@ services:
   local-ai-engine:
     image: ollama/ollama:latest
     container_name: local-ai-engine
+    profiles:
+      - local-ai
     restart: unless-stopped
     ports:
       - "11434:11434"

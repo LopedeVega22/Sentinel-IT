@@ -1,83 +1,17 @@
-# Sentinel IT – Plataforma de Seguridad Distribuida
+# TFG: Arquitectura de Seguridad IoT distribuida en AWS
 
-## Descripción
+## Descripción General
 
-Sentinel IT es un proyecto desarrollado como **TFG del ciclo ASIR** que implementa una plataforma de **monitorización, detección y respuesta automática ante incidentes de seguridad** utilizando dos **Raspberry Pi** conectadas mediante **AWS IoT Core** con comunicación **MQTT cifrada con TLS**.
+Este repositorio/carpeta centraliza la documentación y el código para el Trabajo de Fin de Grado (TFG) basado en la comunicación segura mediante AWS IoT Core entre dos nodos con Raspberry Pi.
 
-El sistema simula un entorno real donde un servidor expone varios servicios a usuarios externos mientras otro nodo analiza la actividad y responde automáticamente ante posibles amenazas.
+- **Casa 1 (Compañero):** Raspberry Pi 4 (Nodo Protegido). Ejecuta monitorización, auditoría, backups y servicios web (Nginx / SSH). Envía eventos.
+- **AWS IoT Core:** Eje central de comunicación, encargado de validar y retransmitir los mensajes mediante protocolos seguros (MQTT/TLS).
+- **Casa 2 (Tu Casa):** Raspberry Pi 5 (Nodo Coordinador). Ejecuta el Agente ADK, gestiona respuestas, genera informes, y aloja la Base de Datos y la API.
 
----
+## Estructura del Proyecto
 
-## Arquitectura
-
-<img width="765" height="509" alt="image" src="https://github.com/user-attachments/assets/7f6b5126-daee-42f7-b55f-f545c1c53793" />
-
-
-El sistema está compuesto por dos nodos:
-
-### Raspberry Pi 4 – Nodo protegido
-Servidor accesible por los usuarios que ejecuta varios servicios:
-
-- Servidor web (Apache / Nginx)
-- FTP (vsftpd)
-- SSH
-- Base de datos MariaDB
-- DNS local (dnsmasq)
-- Proxy inverso
-- Web honeypot para pruebas de seguridad
-
-Este nodo genera logs y envía eventos de seguridad al sistema de análisis.
-
-### Raspberry Pi 5 – Nodo coordinador
-Encargado de analizar los eventos recibidos y ejecutar respuestas automáticas:
-
-- Agente de seguridad basado en **ADK**
-- Recepción de eventos mediante **AWS IoT Core**
-- Clasificación de incidentes
-- Generación de informes
-- Gestión de copias de seguridad
-
----
-
-## Funcionamiento
-
-1. Los usuarios acceden a los servicios del servidor.
-2. Los servicios generan logs de actividad.
-3. Se detectan eventos relevantes de seguridad.
-4. Los eventos se envían mediante AWS IoT Core.
-5. El nodo coordinador analiza la amenaza y ejecuta acciones si es necesario.
-
----
-
-## Tecnologías utilizadas
-
-**Hardware**
-
-- Raspberry Pi 4
-- Raspberry Pi 5
-
-**Software**
-
-- Raspberry Pi OS
-- Python
-- PHP
-- MariaDB
-- Apache / Nginx
-- vsftpd
-- dnsmasq
-
-**Cloud**
-
-- AWS IoT Core
-- MQTT
-- TLS
-
----
-
-## Autores
-
-Daniel Alarcón Perea  
-Félix Tejedor Zapatero  
-
-TFG – Administración de Sistemas Informáticos en Red  
-Salesianos de Atocha
+- `/docs`: Documentación detallada dividida por fases (Requisitos, Arquitectura, Pruebas, Despliegue).
+- `/pi4-felix`: Scripts, configuración y agente de monitorización para la Raspberry Pi 4 (Nodo Sensor).
+- `/pi5-dani`: Scripts de la API, Agente ADK, conexión a la Base de Datos y Dashboard Web para la Raspberry Pi 5 (Nodo Coordinador).
+- `docker-compose.yml`: Orquestación Docker para desplegar ambos nodos.
+- `simulador_ataque.py`: Script de simulación de ataque SSH de fuerza bruta para demostraciones.

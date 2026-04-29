@@ -61,8 +61,19 @@ def block_ip(device: str, ip: str, reason: str) -> dict:
                 conn.execute('PRAGMA journal_mode=WAL;')
                 conn.execute('PRAGMA synchronous=NORMAL;')
                 cursor = conn.cursor()
-                cursor.execute("UPDATE logs SET accion_tomada = ? WHERE ip_origen = ? ORDER BY id DESC LIMIT 1", 
-                               ("Bloqueo Activo Emitido", ip))
+                cursor.execute("""
+                    UPDATE logs 
+                    SET accion_tomada = CASE 
+                        WHEN accion_tomada = 'Solo Registro' THEN ?
+                        ELSE accion_tomada || ? 
+                    END
+                    WHERE id = (
+                        SELECT id FROM logs 
+                        WHERE ip_origen = ? 
+                        ORDER BY timestamp DESC 
+                        LIMIT 1
+                    )
+                """, (f"Bloqueo Activo Emitido: {ip}", f"\nBloqueo Activo Emitido: {ip}", ip))
                 conn.commit()
                 break 
             except sqlite3.OperationalError as db_e:
@@ -109,6 +120,41 @@ def execute_remote_command(device: str, command: str, reason: str) -> dict:
         _iot_client.publish(response_topic, action_payload)
         
         logger.info(f"[AGENT] Comando remoto enviado a {device}: {command}")
+        
+        # Guardar en DB el comando enviado
+        for attempt in range(5):
+            conn = None
+            try:
+                conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
+                conn.execute('PRAGMA journal_mode=WAL;')
+                conn.execute('PRAGMA synchronous=NORMAL;')
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE logs 
+                    SET accion_tomada = CASE 
+                        WHEN accion_tomada = 'Solo Registro' THEN ?
+                        ELSE accion_tomada || ? 
+                    END
+                    WHERE id = (
+                        SELECT id FROM logs 
+                        WHERE dispositivo = ? 
+                        ORDER BY timestamp DESC 
+                        LIMIT 1
+                    )
+                """, (f"Comando Exec: {command}", f"\nComando Exec: {command}", device))
+                conn.commit()
+                break 
+            except sqlite3.OperationalError as db_e:
+                if "locked" in str(db_e).lower() or "readonly" in str(db_e).lower():
+                    time.sleep(2)
+                else:
+                    break
+            except Exception:
+                break
+            finally:
+                if conn:
+                    conn.close()
+
         return {"status": "action_sent", "target": device, "command": command}
     except Exception as e:
         logger.error(f"[ERROR] Error en envio de comando remoto: {e}")

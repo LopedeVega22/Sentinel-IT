@@ -8,7 +8,7 @@ aws:
 
 mqtt:
   topic_subscribe_logs: "seguridad/#"
-  topic_actions_base: "comandos/"
+  topic_actions_base: "seguridad/acciones/"
 
 database:
   db_path: "data/soc_data.db"

@@ -18,18 +18,12 @@
         "iot:Receive",
         "iot:RetainPublish"
       ],
-      "Resource": [
-        "arn:aws:iot:eu-north-1:582997418897:topic/seguridad/*",
-        "arn:aws:iot:eu-north-1:582997418897:topic/comandos/*"
-      ]
+      "Resource": "arn:aws:iot:eu-north-1:582997418897:topic/seguridad/*"
     },
     {
       "Effect": "Allow",
       "Action": "iot:Subscribe",
-      "Resource": [
-        "arn:aws:iot:eu-north-1:582997418897:topicfilter/seguridad/*",
-        "arn:aws:iot:eu-north-1:582997418897:topicfilter/comandos/*"
-      ]
+      "Resource": "arn:aws:iot:eu-north-1:582997418897:topicfilter/seguridad/*"
     }
   ]
 }

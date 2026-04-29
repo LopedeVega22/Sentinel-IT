@@ -340,7 +340,7 @@
 
         .vector-bar-item {
             display: grid;
-            grid-template-columns: 120px 1fr 50px;
+            grid-template-columns: 90px 1fr 50px;
             align-items: center;
             gap: 12px;
         }
@@ -450,7 +450,7 @@
         }
 
         /* ============================================================
-           THREAT FEED TABLE — FIXED LAYOUT
+           THREAT FEED TABLE
            ============================================================ */
         .feed-section {
             background: var(--bg-card);
@@ -501,20 +501,10 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            table-layout: fixed;
         }
 
-        /* Column widths — fixed proportions */
-        col.col-time     { width: 12%; }
-        col.col-target   { width: 12%; }
-        col.col-severity { width: 7%; }
-        col.col-ip       { width: 10%; }
-        col.col-verdict  { width: 30%; }
-        col.col-log      { width: 10%; }
-        col.col-action   { width: 19%; }
-
         th {
-            padding: 12px 16px;
+            padding: 12px 20px;
             background: rgba(0, 0, 0, 0.2);
             color: var(--text-muted);
             font-weight: 600;
@@ -527,13 +517,11 @@
         }
 
         td {
-            padding: 14px 16px;
-            font-size: 0.83rem;
+            padding: 14px 20px;
+            font-size: 0.85rem;
             color: var(--text-secondary);
             border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-            vertical-align: top;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
+            vertical-align: middle;
         }
 
         tr { transition: background 0.15s ease; }
@@ -550,7 +538,7 @@
         .cell-node-name {
             font-weight: 600;
             color: var(--text-primary);
-            font-size: 0.83rem;
+            font-size: 0.85rem;
         }
 
         .cell-node-vector {
@@ -573,7 +561,6 @@
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            white-space: nowrap;
         }
 
         .sev-badge.critical {
@@ -610,14 +597,15 @@
         .cell-ip {
             font-family: var(--font-mono);
             font-weight: 600;
-            font-size: 0.83rem;
+            font-size: 0.85rem;
             color: var(--text-primary);
         }
 
         /* Verdict cell */
         .cell-verdict {
             color: var(--text-secondary);
-            line-height: 1.55;
+            max-width: 300px;
+            line-height: 1.5;
             font-size: 0.82rem;
         }
 
@@ -628,12 +616,13 @@
 
         .log-preview {
             font-family: var(--font-mono);
-            font-size: 0.73rem;
+            font-size: 0.75rem;
             background: rgba(0, 0, 0, 0.3);
             color: var(--text-muted);
             padding: 6px 10px;
             border-radius: 6px;
             border: 1px solid var(--border-subtle);
+            max-width: 280px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -651,34 +640,7 @@
         .log-preview.expanded {
             white-space: pre-wrap;
             word-break: break-all;
-        }
-
-        .log-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 10px;
-            border-radius: 6px;
-            font-family: var(--font-mono);
-            font-size: 0.73rem;
-            font-weight: 600;
-            background: rgba(91, 156, 246, 0.08);
-            color: var(--accent-blue);
-            border: 1px solid rgba(91, 156, 246, 0.18);
-            cursor: pointer;
-            transition: all 0.2s;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
-        }
-        .log-badge:hover {
-            background: rgba(91, 156, 246, 0.15);
-            border-color: rgba(91, 156, 246, 0.3);
-            color: #7db4fc;
-        }
-        .log-badge svg {
-            flex-shrink: 0;
+            max-width: 500px;
         }
 
         /* Action cell */
@@ -689,22 +651,14 @@
             padding: 5px 10px;
             border-radius: 6px;
             font-family: var(--font-mono);
-            font-size: 0.73rem;
+            font-size: 0.75rem;
             font-weight: 600;
-            cursor: default;
         }
 
         .action-badge.blocked {
             background: rgba(239, 68, 68, 0.1);
             color: var(--accent-red);
             border: 1px solid rgba(239, 68, 68, 0.2);
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .action-badge.blocked:hover {
-            background: rgba(239, 68, 68, 0.18);
-            border-color: rgba(239, 68, 68, 0.35);
         }
 
         .action-badge.reverted {
@@ -727,8 +681,8 @@
             border: 1px solid var(--border-subtle);
             color: var(--text-muted);
             cursor: pointer;
-            width: 30px;
-            height: 30px;
+            width: 28px;
+            height: 28px;
             border-radius: 6px;
             display: inline-flex;
             align-items: center;
@@ -745,14 +699,13 @@
         .action-group {
             display: flex;
             align-items: center;
-            gap: 6px;
-            flex-wrap: nowrap;
+            gap: 8px;
         }
 
         /* Timestamp cell */
         .cell-time {
             font-family: var(--font-mono);
-            font-size: 0.73rem;
+            font-size: 0.75rem;
             color: var(--text-muted);
             white-space: nowrap;
         }
@@ -779,206 +732,6 @@
         .footer-brand span { color: var(--accent-blue); font-weight: 600; }
 
         /* ============================================================
-           MODAL — Premium Glassmorphism
-           ============================================================ */
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 12, 20, 0.75);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            z-index: 9999;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            opacity: 0;
-            transition: opacity 0.25s ease;
-        }
-        .modal-overlay.active { display: flex; opacity: 1; }
-
-        .modal-card {
-            background: linear-gradient(145deg, #1e2235, #181b2a);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 16px;
-            padding: 0;
-            width: 92%;
-            max-width: 640px;
-            box-shadow: 0 25px 60px -15px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03);
-            transform: translateY(24px) scale(0.97);
-            transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            overflow: hidden;
-        }
-        .modal-overlay.active .modal-card { transform: translateY(0) scale(1); }
-
-        .modal-header {
-            padding: 20px 24px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid var(--border-subtle);
-            background: rgba(0,0,0,0.15);
-        }
-
-        .modal-header-left {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .modal-icon {
-            width: 38px; height: 38px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal-icon.block {
-            background: var(--sev-critical-bg);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        .modal-icon.revert {
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-
-        .modal-title {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-        .modal-subtitle {
-            font-size: 0.72rem;
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-            margin-top: 2px;
-        }
-
-        .modal-close {
-            cursor: pointer;
-            color: var(--text-muted);
-            background: rgba(255,255,255,0.04);
-            border: 1px solid var(--border-subtle);
-            width: 32px; height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.15s;
-            font-size: 1.1rem;
-            line-height: 1;
-        }
-        .modal-close:hover {
-            background: rgba(255,255,255,0.08);
-            color: var(--text-primary);
-        }
-
-        .modal-body {
-            padding: 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-        }
-
-        .modal-section-label {
-            font-size: 0.68rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-            color: var(--text-muted);
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .modal-code-block {
-            background: rgba(0,0,0,0.35);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 10px;
-            padding: 16px 18px;
-            font-family: var(--font-mono);
-            font-size: 0.85rem;
-            color: var(--accent-cyan);
-            overflow-x: auto;
-            position: relative;
-            line-height: 1.7;
-        }
-
-        .modal-code-block .cmd-prefix {
-            color: var(--accent-green);
-            user-select: none;
-        }
-
-        .modal-json-block {
-            background: rgba(0,0,0,0.35);
-            border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 10px;
-            padding: 16px 18px;
-            font-family: var(--font-mono);
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            white-space: pre-wrap;
-            word-break: break-all;
-            line-height: 1.7;
-        }
-        .modal-json-block .json-key { color: var(--accent-purple); }
-        .modal-json-block .json-str { color: var(--accent-green); }
-
-        .modal-device-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 12px;
-            background: rgba(91, 156, 246, 0.1);
-            border: 1px solid rgba(91, 156, 246, 0.2);
-            border-radius: 20px;
-            font-family: var(--font-mono);
-            font-size: 0.72rem;
-            font-weight: 600;
-            color: var(--accent-blue);
-        }
-
-        .modal-footer {
-            padding: 16px 24px;
-            border-top: 1px solid var(--border-subtle);
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 12px;
-            background: rgba(0,0,0,0.1);
-        }
-
-        .modal-btn {
-            padding: 9px 20px;
-            border-radius: 8px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.15s;
-            border: 1px solid transparent;
-            font-family: var(--font-main);
-        }
-
-        .modal-btn.cancel {
-            background: rgba(255,255,255,0.04);
-            border-color: var(--border-subtle);
-            color: var(--text-secondary);
-        }
-        .modal-btn.cancel:hover {
-            background: rgba(255,255,255,0.08);
-            color: var(--text-primary);
-        }
-
-        .modal-btn.confirm-revert {
-            background: rgba(34, 197, 94, 0.15);
-            border-color: rgba(34, 197, 94, 0.3);
-            color: var(--accent-green);
-        }
-        .modal-btn.confirm-revert:hover {
-            background: rgba(34, 197, 94, 0.25);
-        }
-
-        /* ============================================================
            ANIMATIONS
            ============================================================ */
         @keyframes pulse-dot {
@@ -1001,7 +754,6 @@
         @media (max-width: 1200px) {
             .kpi-grid { grid-template-columns: repeat(3, 1fr); }
             .analytics-row { grid-template-columns: 1fr; }
-            table { table-layout: auto; }
         }
 
         @media (max-width: 768px) {
@@ -1010,12 +762,39 @@
             .container { padding: 0 16px; }
             .nav-brand h1 span { display: none; }
             .mqtt-indicator { display: none; }
-            table { table-layout: auto; }
         }
 
         @media (max-width: 480px) {
             .kpi-grid { grid-template-columns: 1fr; }
+        /* ============================================================
+           MODAL GLASSMORPHISM
+           ============================================================ */
+        .command-modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 15, 25, 0.7); backdrop-filter: blur(8px);
+            z-index: 9999; display: none; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.3s ease;
         }
+        .command-modal-overlay.active { display: flex; opacity: 1; }
+        .command-modal {
+            background: var(--bg-card); border: 1px solid var(--border-subtle);
+            border-radius: 12px; padding: 25px; width: 90%; max-width: 600px;
+            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); transform: translateY(20px);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .command-modal-overlay.active .command-modal { transform: translateY(0); }
+        .command-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .command-modal-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px;}
+        .command-modal-close { cursor: pointer; color: var(--text-muted); background: none; border: none; font-size: 1.5rem; transition: color 0.15s ease; padding: 0;}
+        .command-modal-close:hover { color: var(--text-primary); }
+        .command-code-block {
+            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05);
+            border-radius: 8px; padding: 15px; font-family: var(--font-mono); font-size: 0.85rem;
+            color: var(--accent-blue); overflow-x: auto; margin-bottom: 15px; position: relative;
+        }
+        .command-code-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;}
+        .command-json-payload { color: var(--text-secondary); white-space: pre-wrap; font-size: 0.8rem; }
+
     </style>
 </head>
 
@@ -1133,7 +912,7 @@
                                     </div>
                                     <div class="activity-body">
                                         <div class="activity-title">{{ row[1]|default('Unknown') }} — {{ row[2]|default('N/A') }}</div>
-                                        <div class="activity-meta">{{ row[4]|default('-') }} · {{ row[9]|default('') }}</div>
+                                        <div class="activity-meta">{{ row[4]|default('-') }} · {{ row[8]|default('') }}</div>
                                     </div>
                                 </div>
                                 {% endfor %}
@@ -1155,15 +934,6 @@
                     </div>
                     <div class="table-responsive">
                         <table>
-                            <colgroup>
-                                <col class="col-time">
-                                <col class="col-target">
-                                <col class="col-severity">
-                                <col class="col-ip">
-                                <col class="col-verdict">
-                                <col class="col-log">
-                                <col class="col-action">
-                            </colgroup>
                             <thead>
                                 <tr>
                                     <th>Timestamp</th>
@@ -1172,13 +942,14 @@
                                     <th>Source IP</th>
                                     <th>AI Verdict</th>
                                     <th>Raw Log</th>
-                                    <th>Action</th>
+                                    <th>Action History</th>
+                                    <th>Pi4 Feedback</th>
                                 </tr>
                             </thead>
                             <tbody id="feed-body">
                                 {% for row in data %}
                                 <tr>
-                                    <td class="cell-time">{{ row[9] }}</td>
+                                    <td class="cell-time">{{ row[8] }}</td>
                                     <td>
                                         <div class="cell-node">
                                             <span class="cell-node-name">{{ row[1] }}</span>
@@ -1202,26 +973,28 @@
                                     <td class="cell-ip">{{ row[4] }}</td>
                                     <td class="cell-verdict">{{ row[6] }}</td>
                                     <td class="cell-log">
-                                        <span class="log-badge" data-device="{{ row[1]|default('Unknown')|e }}" data-service="{{ row[2]|default('N/A')|e }}" data-log="{{ row[3]|default('')|e }}" title="Ver log original">
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                                            Ver Log
-                                        </span>
+                                        <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[3] }}</span>
                                     </td>
-                                    <td>
-                                        {% if "bloque" in row[7]|lower and "revertido" not in row[7]|lower %}
-                                        <div class="action-group">
-                                            <span class="action-badge blocked" onclick="showBlockModal('{{ row[1]|default('Unknown') }}', '{{ row[4]|default('') }}')" title="Ver comando emitido">&#x1F6E1; {{ row[7] }}</span>
-                                            <button type="button" class="revert-btn" onclick="showRevertModal({{ row[0] }}, '{{ row[1]|default('Unknown') }}', '{{ row[4]|default('') }}')" title="Revertir bloqueo">
-                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                                                    <path d="M3 3v5h5"></path>
-                                                </svg>
-                                            </button>
+                                    <td class="cell-log">
+                                        <div class="action-group" style="align-items: flex-start; flex-direction: column;">
+                                            <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[7] }}</span>
+                                            {% if "bloque" in row[7]|lower and "revertido" not in row[7]|lower %}
+                                            <form action="/revert/{{ row[0] }}" method="POST" style="margin-top: 5px;">
+                                                <button type="submit" class="revert-btn" title="Revert block">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                                                        <path d="M3 3v5h5"></path>
+                                                    </svg>
+                                                </button>
+                                            </form>
+                                            {% endif %}
                                         </div>
-                                        {% elif "revertido" in row[7]|lower %}
-                                        <span class="action-badge reverted">{{ row[7] }}</span>
+                                    </td>
+                                    <td class="cell-log">
+                                        {% if row[8] %}
+                                        <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[8] }}</span>
                                         {% else %}
-                                        <span class="action-badge monitoring">{{ row[7] }}</span>
+                                        <span class="action-badge monitoring">Waiting...</span>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -1256,139 +1029,22 @@
 
     </div>
 
-    <!-- ==================== BLOCK COMMAND MODAL ==================== -->
-    <div class="modal-overlay" id="blockModal" onclick="closeModal('blockModal')">
-        <div class="modal-card" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <div class="modal-header-left">
-                    <div class="modal-icon block">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sev-critical)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                    </div>
-                    <div>
-                        <div class="modal-title">Comando de Bloqueo Emitido</div>
-                        <div class="modal-subtitle" id="blockModalDevice"></div>
-                    </div>
+    <!-- ==================== COMMAND MODAL ==================== -->
+    <div class="command-modal-overlay" id="commandModal" onclick="closeCommandModal()">
+        <div class="command-modal" onclick="event.stopPropagation()">
+            <div class="command-modal-header">
+                <div class="command-modal-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sev-high)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    Raw Command Viewer
                 </div>
-                <button class="modal-close" onclick="closeModal('blockModal')">&times;</button>
+                <button class="command-modal-close" onclick="closeCommandModal()">&times;</button>
             </div>
-            <div class="modal-body">
-                <div>
-                    <div class="modal-section-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                        Comando Ejecutado en Terminal Remota
-                    </div>
-                    <div class="modal-code-block">
-                        <span class="cmd-prefix">$ </span><span id="blockModalCmd"></span>
-                    </div>
-                </div>
-                <div>
-                    <div class="modal-section-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                        Payload JSON (Túnel MQTT / AWS IoT Core)
-                    </div>
-                    <div class="modal-json-block" id="blockModalJson"></div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <div class="modal-section-label" style="margin-bottom: 0;">Dispositivo destino:</div>
-                    <span class="modal-device-badge" id="blockModalBadge">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                        <span id="blockModalBadgeText"></span>
-                    </span>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="modal-btn cancel" onclick="closeModal('blockModal')">Cerrar</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- ==================== REVERT CONFIRMATION MODAL ==================== -->
-    <div class="modal-overlay" id="revertModal" onclick="closeModal('revertModal')">
-        <div class="modal-card" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <div class="modal-header-left">
-                    <div class="modal-icon revert">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                            <path d="M3 3v5h5"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <div class="modal-title">Confirmar Reversión de Bloqueo</div>
-                        <div class="modal-subtitle" id="revertModalDevice"></div>
-                    </div>
-                </div>
-                <button class="modal-close" onclick="closeModal('revertModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div style="padding: 12px 16px; background: rgba(34, 197, 94, 0.06); border: 1px solid rgba(34, 197, 94, 0.15); border-radius: 10px; font-size: 0.83rem; color: var(--text-secondary); line-height: 1.6;">
-                    ⚠️ Esta acción enviará un comando al dispositivo para <strong style="color: var(--accent-green);">eliminar la regla de bloqueo</strong> del firewall. La IP volverá a tener acceso al sistema.
-                </div>
-                <div>
-                    <div class="modal-section-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-                        Comando que se enviará
-                    </div>
-                    <div class="modal-code-block">
-                        <span class="cmd-prefix">$ </span><span id="revertModalCmd"></span>
-                    </div>
-                </div>
-                <div>
-                    <div class="modal-section-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                        Payload JSON (Túnel MQTT / AWS IoT Core)
-                    </div>
-                    <div class="modal-json-block" id="revertModalJson"></div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="modal-btn cancel" onclick="closeModal('revertModal')">Cancelar</button>
-                <form id="revertForm" method="POST" style="margin:0;">
-                    <button type="submit" class="modal-btn confirm-revert">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -2px; margin-right: 4px;">
-                            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                            <path d="M3 3v5h5"></path>
-                        </svg>
-                        Confirmar Reversión
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-    <!-- ==================== RAW LOG MODAL ==================== -->
-    <div class="modal-overlay" id="logModal" onclick="closeModal('logModal')">
-        <div class="modal-card" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <div class="modal-header-left">
-                    <div class="modal-icon" style="background: rgba(91, 156, 246, 0.1); border: 1px solid rgba(91, 156, 246, 0.2);">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                    </div>
-                    <div>
-                        <div class="modal-title">Log Original del Evento</div>
-                        <div class="modal-subtitle" id="logModalSubtitle"></div>
-                    </div>
-                </div>
-                <button class="modal-close" onclick="closeModal('logModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div>
-                    <div class="modal-section-label">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                        Datos RAW recibidos via MQTT
-                    </div>
-                    <div class="modal-json-block" id="logModalContent"></div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <div class="modal-section-label" style="margin-bottom: 0;">Origen:</div>
-                    <span class="modal-device-badge" id="logModalBadge">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                        <span id="logModalBadgeText"></span>
-                    </span>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="modal-btn cancel" onclick="closeModal('logModal')">Cerrar</button>
-            </div>
+            
+            <div class="command-code-label">Ejecución Firewall IPTables en Remoto <span style="float: right; color: var(--text-secondary);" id="modalPlatform"></span></div>
+            <div class="command-code-block" id="modalRawCommand"></div>
+            
+            <div class="command-code-label">Payload JSON (Túnel MQTT)</div>
+            <div class="command-code-block command-json-payload" id="modalJsonPayload"></div>
         </div>
     </div>
 
@@ -1443,95 +1099,32 @@
         }
 
         function escapeHtml(text) {
-            if (!text) return '';
-            return String(text)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;');
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
         }
 
-        // ---------- JSON Syntax Highlighting ----------
-        function highlightJson(obj) {
-            const raw = JSON.stringify(obj, null, 2);
-            return raw.replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
-                      .replace(/: "([^"]+)"/g, ': <span class="json-str">"$1"</span>');
-        }
-
-        // ---------- Raw Log Modal ----------
-        function showLogModal(device, service, rawLog) {
-            document.getElementById('logModalSubtitle').textContent = `${device} — ${service}`;
-            document.getElementById('logModalBadgeText').textContent = device;
-
-            // Try to parse as JSON for pretty-printing, fallback to plain text
-            try {
-                const parsed = JSON.parse(rawLog);
-                document.getElementById('logModalContent').innerHTML = highlightJson(parsed);
-            } catch (e) {
-                document.getElementById('logModalContent').textContent = rawLog;
-            }
-
-            document.getElementById('logModal').classList.add('active');
-        }
-
-        // ---------- Block Command Modal ----------
-        function showBlockModal(device, ip) {
-            const cmd = `sudo iptables -A INPUT -s ${ip} -j DROP`;
+        function showCommandModal(device, ip) {
+            const modal = document.getElementById('commandModal');
+            document.getElementById('modalPlatform').textContent = `Device: ${device}`;
+            
+            // Reconstruct the exact bash command applied natively on Pi
+            document.getElementById('modalRawCommand').textContent = `sudo iptables -A INPUT -s ${ip} -j DROP`;
+            
+            // Reconstruct JSON payload sent thru MQTT
             const payload = {
                 accion: "bloquear_ip",
                 ip: ip,
                 motivo: "Agent Automated Defense Protocol - AI Verdict Action"
             };
-
-            document.getElementById('blockModalDevice').textContent = `Acción automática del Agente IA`;
-            document.getElementById('blockModalCmd').textContent = cmd;
-            document.getElementById('blockModalJson').innerHTML = highlightJson(payload);
-            document.getElementById('blockModalBadgeText').textContent = device;
-
-            document.getElementById('blockModal').classList.add('active');
+            document.getElementById('modalJsonPayload').textContent = JSON.stringify(payload, null, 2);
+            
+            modal.classList.add('active');
         }
 
-        // ---------- Revert Confirmation Modal ----------
-        function showRevertModal(logId, device, ip) {
-            const cmd = `sudo iptables -D INPUT -s ${ip} -j DROP`;
-            const payload = {
-                accion: "ejecutar_comando",
-                comando: cmd,
-                motivo: `Manual revert from dashboard for IP ${ip}`
-            };
-
-            document.getElementById('revertModalDevice').textContent = `Dispositivo: ${device} · IP: ${ip}`;
-            document.getElementById('revertModalCmd').textContent = cmd;
-            document.getElementById('revertModalJson').innerHTML = highlightJson(payload);
-            document.getElementById('revertForm').action = `/revert/${logId}`;
-
-            document.getElementById('revertModal').classList.add('active');
+        function closeCommandModal() {
+            document.getElementById('commandModal').classList.remove('active');
         }
-
-        // ---------- Close any modal ----------
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('active');
-        }
-
-        // Close modals with Escape key
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                closeModal('blockModal');
-                closeModal('revertModal');
-                closeModal('logModal');
-            }
-        });
-
-        // Event delegation for log badges (avoids quote-escaping issues in onclick)
-        document.addEventListener('click', function(e) {
-            const badge = e.target.closest('.log-badge');
-            if (badge) {
-                const device = badge.dataset.device || 'Unknown';
-                const service = badge.dataset.service || 'N/A';
-                const rawLog = badge.dataset.log || '';
-                showLogModal(device, service, rawLog);
-            }
-        });
 
         async function refreshDashboard() {
             try {
@@ -1607,22 +1200,25 @@
                 if (d.logs && d.logs.length > 0) {
                     feedBody.innerHTML = d.logs.map(log => {
                         const sevClass = getSeverityClass(log.severity);
-                        let actionHtml = '';
+                        let actionHtml = `<div class="action-group" style="align-items: flex-start; flex-direction: column;">
+                            <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.action)}</span>`;
+                        
                         if (isActionBlocked(log.action)) {
-                            actionHtml = `<div class="action-group">
-                                <span class="action-badge blocked" onclick="showBlockModal('${escapeHtml(log.device)}', '${escapeHtml(log.source_ip)}')" title="Ver comando emitido">&#x1F6E1; ${escapeHtml(log.action)}</span>
-                                <button type="button" class="revert-btn" onclick="showRevertModal(${log.id}, '${escapeHtml(log.device)}', '${escapeHtml(log.source_ip)}')" title="Revertir bloqueo">
+                            actionHtml += `
+                            <form action="/revert/${log.id}" method="POST" style="margin-top: 5px;">
+                                <button type="submit" class="revert-btn" title="Revert block">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                         <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
                                         <path d="M3 3v5h5"></path>
                                     </svg>
                                 </button>
-                            </div>`;
-                        } else if (isActionReverted(log.action)) {
-                            actionHtml = `<span class="action-badge reverted">${escapeHtml(log.action)}</span>`;
-                        } else {
-                            actionHtml = `<span class="action-badge monitoring">${escapeHtml(log.action)}</span>`;
+                            </form>`;
                         }
+                        actionHtml += `</div>`;
+
+                        let feedbackHtml = log.mitigation_status ? 
+                            `<span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.mitigation_status)}</span>` : 
+                            `<span class="action-badge monitoring">Waiting...</span>`;
 
                         return `<tr>
                             <td class="cell-time">${escapeHtml(log.timestamp)}</td>
@@ -1630,8 +1226,9 @@
                             <td><span class="sev-badge ${sevClass}">${escapeHtml(log.severity)}</span></td>
                             <td class="cell-ip">${escapeHtml(log.source_ip)}</td>
                             <td class="cell-verdict">${escapeHtml(log.verdict)}</td>
-                            <td class="cell-log"><span class="log-badge" data-device="${escapeHtml(log.device)}" data-service="${escapeHtml(log.service)}" data-log="${escapeHtml(log.raw_log)}" title="Ver log original"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg> Ver Log</span></td>
-                            <td>${actionHtml}</td>
+                            <td class="cell-log"><span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.raw_log)}</span></td>
+                            <td class="cell-log">${actionHtml}</td>
+                            <td class="cell-log">${feedbackHtml}</td>
                         </tr>`;
                     }).join('');
                 }

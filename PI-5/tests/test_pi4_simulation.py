@@ -15,13 +15,13 @@ with open(config_path, "r") as f:
     config = yaml.safe_load(f)
 
 ENDPOINT  = config['aws']['endpoint']
-CLIENT_ID = "Pi4-felix"  # 🎭 Usamos el DNI de la Pi 4 real permitido en la Policy de AWS para evitar la colisión de IDs con la Pi 5
+CLIENT_ID = config['aws']['client_id']  # 🎭 Volvemos a usar el DNI de la Pi 5 para saltarnos el bloqueo de la Policy de AWS
 CERT_PATH = os.path.join(os.path.dirname(__file__), '..', config['aws']['cert_path'])
 KEY_PATH  = os.path.join(os.path.dirname(__file__), '..', config['aws']['key_path'])
 ROOT_CA   = os.path.join(os.path.dirname(__file__), '..', config['aws']['root_ca'])
 
 TOPIC_LOGS_OUT = "seguridad/Pi4-Sensor-01/logs"
-TOPIC_CMD_IN   = "comandos/Pi4-Sensor-01"
+TOPIC_CMD_IN   = "comandos/Pi4-Sensor-01/in"
 TOPIC_FB_OUT   = "comandos/Pi4-Sensor-01/out"
 
 # Callback cuando la Pi 5 (el Coordinator) nos manda un comando por MQTT

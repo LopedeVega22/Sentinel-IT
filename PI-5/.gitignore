@@ -1,9 +1,9 @@
 # ==============================================================================
-# Gitignore para el Coordinador IA (PI-5)
+# Gitignore para el Coordinador IA (pi5-dani)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# SECRETOS Y CREDENCIALES
+# ⚠️ SECRETOS Y CREDENCIALES (CRÍTICO NO SUBIR A GITHUB)
 # ------------------------------------------------------------------------------
 .env
 certificados/
@@ -42,7 +42,7 @@ env/
 .env_folder/
 
 # Pruebas (pytest, coverage)
-# tests/  # Comentado temporalmente para permitir subir los scripts de simulación reales al repo
+# tests/
 .pytest_cache/
 .coverage
 htmlcov/

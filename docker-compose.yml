@@ -1,0 +1,57 @@
+version: '3.8'
+
+# ==============================================================================
+# Orquestación Docker Compose para Arquitectura SOC TFG (Agentic AI)
+# ==============================================================================
+# Instrucciones:
+# Para desplegar en producción, simplemente ejecuta: 
+#   docker-compose up -d --build
+#
+# Cada dispositivo Raspberry Pi ejecutará este archivo (o su servicio correspondiente).
+# Si estás ejecutando todo en un mismo PC para pruebas, ambos contenedores levantarán juntos.
+
+services:
+  # ----------------------------------------------------------------------------
+  # Servicio 1: NODO SENSOR (Raspberry Pi 4)
+  # ----------------------------------------------------------------------------
+  soc-sensor-pi4:
+    build: 
+      context: ./pi4-felix
+      dockerfile: Dockerfile
+    container_name: soc-sensor-pi4
+    restart: unless-stopped
+    # Para que iptables funcione dentro de docker contra el host:
+    cap_add:
+      - NET_ADMIN
+    network_mode: "host"  # Para atrapar logs reales y aplicar reglas a la NIC real
+    volumes:
+      - /var/log/auth.log:/var/log/auth.log:ro  # Modificación crucial: Leer logs del SO anfitrión en modo Solo Lectura
+      - ./pi4-felix/sensor_soc.log:/app/sensor_soc.log  # Persistir el propio log local
+    environment:
+      - TZ=Europe/Madrid
+
+  # ----------------------------------------------------------------------------
+  # Servicio 2: NODO COORDINADOR E IA (Raspberry Pi 5)
+  # ----------------------------------------------------------------------------
+  soc-coordinator-pi5:
+    build: 
+      context: ./pi5-dani
+      dockerfile: Dockerfile
+    container_name: soc-coordinator-pi5
+    restart: unless-stopped
+    ports:
+      - "5000:5000"  # Exponer el puerto del Dashboard Web Flask
+    volumes:
+      # Modificación crucial: Persistir la base de datos para no perder incidentes si se reinicia el contenedor
+      - soc_data_volume:/app/soc_data.db
+      - ./pi5-dani/coordinator_soc.log:/app/coordinator_soc.log
+      - ./pi5-dani/dashboard_soc.log:/app/dashboard_soc.log
+    # Reenviar GEMINI_API_KEY desde las variables de entorno de tu PC Host hacia el docker
+    environment:
+      - TZ=Europe/Madrid
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+
+# Volúmenes administrados por Docker para persistencia
+volumes:
+  soc_data_volume:
+    name: "soc_database_persistent"

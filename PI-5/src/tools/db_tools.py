@@ -129,14 +129,17 @@ def update_alert_status(device: str, command_result: str, mitigation_status: str
         # Actualizamos la fila más reciente (ID más alto) correspondiente a este dispositivo
         cursor.execute('''
             UPDATE logs 
-            SET estado_mitigacion = ? 
+            SET estado_mitigacion = CASE 
+                WHEN estado_mitigacion IS NULL THEN ?
+                ELSE estado_mitigacion || ? 
+            END
             WHERE id = (
                 SELECT id FROM logs 
                 WHERE dispositivo = ? 
                 ORDER BY timestamp DESC 
                 LIMIT 1
             )
-        ''', (f"[{mitigation_status}] {command_result}", device))
+        ''', (f"[{mitigation_status}] {command_result}", f"\n[{mitigation_status}] {command_result}", device))
         
         rowcount = cursor.rowcount
         conn.commit()

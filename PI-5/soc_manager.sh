@@ -169,6 +169,9 @@ GEMINI_API_KEY=${GEMINI_KEY}
 DASHBOARD_USER=${dash_user}
 DASHBOARD_PASSWORD=${dash_pass}
 EOF
+        if [ "$AI_MODE" == "local" ]; then
+            echo "COMPOSE_PROFILES=local-ai" >> ./.env
+        fi
         # Limpiar caracteres \r (saltos de línea de Windows)
         sed -i 's/\r$//' ./.env
         chmod 600 ./.env
@@ -192,7 +195,7 @@ function start_soc() {
         echo -e "${BLUE}[INFO] Modo de directorio local detectado.${NC}"
         
         # Sincronización automática de código en despliegue continuo (GitOps) si hay un repo activo
-        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        if [ -d ".git" ]; then
             echo -e "${BLUE}[INFO] Repositorio Git local detectado. Sincronizando últimos cambios de GitHub...${NC}"
             # Se aplica git pull, mostrando aviso si hay conflicto con cambios por SCP locales
             git pull || echo -e "${YELLOW}[WARN] Hubo un error haciendo 'git pull'. Si has modificado archivos locales directamente (por ejemplo, con SCP), resuelve los conflictos para que Git aplique la versión de la nube.${NC}"
