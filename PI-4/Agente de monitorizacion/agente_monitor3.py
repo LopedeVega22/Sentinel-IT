@@ -5,7 +5,7 @@ import subprocess
 import select
 import threading
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
-
+ 
 # ==============================================================================
 # CONFIGURACIÓN DEL AGENTE
 # Aquí se definen todos los parámetros de conexión y rutas de logs.
@@ -16,45 +16,55 @@ ENDPOINT   = "aj4wsdnimoej8-ats.iot.eu-north-1.amazonaws.com"
 CA_PATH    = "/home/lopex/pi4-felix/root-CA.crt"
 CERT_PATH  = "/home/lopex/pi4-felix/Pi4-Felix.cert.pem"
 KEY_PATH   = "/home/lopex/pi4-felix/Pi4-Felix.private.key"
-
-# Topics MQTT: canales donde se publican los eventos y la telemetría
-TOPIC_EVENTOS    = "seguridad/cliente1/eventos"     # Alertas inmediatas (SSH, FTP)
-TOPIC_TELEMETRIA = "seguridad/cliente1/telemetria"  # Resúmenes periódicos (Web + Logs)
-
+ 
+# Topics MQTT
+TOPIC_EVENTOS         = "seguridad/cliente1/eventos"          # Alertas inmediatas (SSH, FTP)
+TOPIC_TELEMETRIA      = "seguridad/cliente1/telemetria"       # Resúmenes periódicos (SSH, FTP, Web Apache)
+TOPIC_WEB_EVENTOS     = "seguridad/cliente1/web/eventos"      # Alertas inmediatas de la app web (SQLi, XSS, fuerza bruta)
+TOPIC_WEB_TELEMETRIA  = "seguridad/cliente1/web/telemetria"   # Resumen periódico de actividad de la app web
+ 
 # Rutas de los archivos de log del sistema que se monitorizan
 LOG_FTP    = "/var/log/vsftpd.log"
 LOG_APACHE = "/var/log/apache2/access.log"
-
+LOG_WEB    = "/var/www/html/sentinelti.com/logs/activity_logs.json"
+ 
 # Intervalo en segundos para el envío periódico de resúmenes
 INTERVALO_ENVIO = 30
-
+ 
 # ==============================================================================
 # ESTRUCTURAS DE DATOS COMPARTIDAS (entre hilos)
-# Estas listas acumulan eventos hasta que el hilo periódico las envía y vacía.
-# Son accedidas por múltiples hilos, por eso se protegen con un Lock.
 # ==============================================================================
 lock = threading.Lock()
 accesos_web_pendientes  = []   # Peticiones HTTP capturadas del log de Apache
 eventos_ssh_pendientes  = []   # Fallos SSH capturados del journal
 eventos_ftp_pendientes  = []   # Fallos FTP capturados del log vsftpd
-
-# Diccionario para detectar ataques de diccionario FTP:
-# { "ip": [timestamp1, timestamp2, ...] }
+eventos_appweb_pendientes = [] # Eventos normales de la app web (para resumen)
+ 
+# Diccionario para detectar ataques de diccionario FTP
 intentos_fallidos_ftp = {}
-UMBRAL_INTENTOS = 10    # Número de intentos para considerar ataque
-VENTANA_TIEMPO  = 30   # Ventana de tiempo en segundos para contar intentos
-
+UMBRAL_INTENTOS_FTP = 10
+VENTANA_TIEMPO_FTP  = 30
+ 
+# Diccionario para detectar fuerza bruta en el login de la app web
+intentos_fallidos_web = {}
+UMBRAL_FUERZA_BRUTA_WEB = 5
+VENTANA_FUERZA_BRUTA_WEB = 60
+ 
 # ==============================================================================
-# EXPRESIONES REGULARES
-# Cada regex extrae los campos relevantes de cada tipo de log.
+# EXPRESIONES REGULARES (SSH, FTP, Apache)
 # ==============================================================================
 regex_ftp    = r"\[(\w+)\] FAIL LOGIN: Client \"::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\""
 regex_apache = r"^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}) .+\"GET (.*) HTTP"
 regex_ssh    = r"Failed password for (?:invalid user )?(\S+) from (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
-
+ 
+# ==============================================================================
+# PATRONES DE ATAQUE PARA LA APP WEB
+# ==============================================================================
+PATRONES_SQLI = ["UNION SELECT", "' OR ", "1=1", "-- -", "DROP TABLE", "INSERT INTO"]
+PATRONES_XSS  = ["<script", "javascript:", "onerror=", "onload=", "<br>", "<b>", "<i>", "<img"]
+ 
 # ==============================================================================
 # CONEXIÓN CON AWS IoT CORE
-# Se usa mTLS (certificados mutuos) para autenticar el dispositivo de forma segura.
 # ==============================================================================
 def iniciar_mqtt():
     """Crea y devuelve un cliente MQTT autenticado con AWS IoT Core."""
@@ -64,42 +74,38 @@ def iniciar_mqtt():
     cliente.connect()
     print(f"[AWS] Conectado como '{CLIENT_ID}'")
     return cliente
-
+ 
 mqtt_client = iniciar_mqtt()
-
+ 
 def publicar(topic, payload):
     """Serializa el payload a JSON y lo publica en el topic indicado."""
-    mensaje = json.dumps(payload)
+    mensaje = json.dumps(payload, ensure_ascii=False)
     mqtt_client.publish(topic, mensaje, 1)
     print(f"[AWS] Publicado en '{topic}': {mensaje}")
-
+ 
 # ==============================================================================
 # HILO PERIÓDICO: envío de resúmenes cada INTERVALO_ENVIO segundos
-# Este hilo corre en paralelo al bucle principal y se encarga de:
-#   - Enviar todos los accesos web acumulados
-#   - Enviar todos los eventos SSH acumulados
-#   - Enviar todos los eventos FTP acumulados (los que NO superaron el umbral)
-# Usa un Lock para evitar condiciones de carrera al vaciar las listas.
+# Gestiona los cuatro buffers: Apache, SSH, FTP y actividad de la app web.
 # ==============================================================================
 def hilo_envio_periodico():
     """Envía resúmenes consolidados de logs cada INTERVALO_ENVIO segundos."""
     while True:
         time.sleep(INTERVALO_ENVIO)
         timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
+ 
         with lock:
-            # --- Resumen de accesos web ---
+            # --- Resumen de accesos web (Apache) ---
             if accesos_web_pendientes:
                 payload = {
                     "timestamp"        : timestamp,
                     "sensor"           : CLIENT_ID,
                     "tipo"             : "RESUMEN_ACCESOS_WEB",
                     "total_peticiones" : len(accesos_web_pendientes),
-                    "detalles"         : accesos_web_pendientes[:10]  # Máx 10 para no saturar
+                    "detalles"         : accesos_web_pendientes[:10]
                 }
                 publicar(TOPIC_TELEMETRIA, payload)
                 accesos_web_pendientes.clear()
-
+ 
             # --- Resumen de eventos SSH ---
             if eventos_ssh_pendientes:
                 payload = {
@@ -111,7 +117,7 @@ def hilo_envio_periodico():
                 }
                 publicar(TOPIC_TELEMETRIA, payload)
                 eventos_ssh_pendientes.clear()
-
+ 
             # --- Resumen de eventos FTP (no críticos) ---
             if eventos_ftp_pendientes:
                 payload = {
@@ -123,43 +129,208 @@ def hilo_envio_periodico():
                 }
                 publicar(TOPIC_TELEMETRIA, payload)
                 eventos_ftp_pendientes.clear()
-
+ 
+            # --- Resumen de actividad de la app web SentinelTI ---
+            if eventos_appweb_pendientes:
+                conteo = {}
+                for ev in eventos_appweb_pendientes:
+                    accion = ev.get("action", "desconocida")
+                    conteo[accion] = conteo.get(accion, 0) + 1
+ 
+                payload = {
+                    "timestamp"  : timestamp,
+                    "sensor"     : CLIENT_ID,
+                    "tipo"       : "RESUMEN_ACTIVIDAD_APP_WEB",
+                    "total"      : len(eventos_appweb_pendientes),
+                    "por_accion" : conteo,
+                    "detalles"   : eventos_appweb_pendientes[:10]
+                }
+                publicar(TOPIC_WEB_TELEMETRIA, payload)
+                eventos_appweb_pendientes.clear()
+ 
 # ==============================================================================
-# BUCLE PRINCIPAL DE MONITORIZACIÓN
-# Lee continuamente los tres orígenes de logs:
-#   1. Archivo vsftpd.log (FTP)
-#   2. Archivo apache2/access.log (Web)
-#   3. Proceso journalctl en tiempo real (SSH)
+# ANÁLISIS DE EVENTOS DE LA APP WEB
+# ==============================================================================
+def detectar_sqli(evento):
+    """Detecta SQL Injection en el campo email del login."""
+    detalles = evento.get("details", {})
+    if not isinstance(detalles, dict):
+        return None
+    email = detalles.get("email", "")
+    for patron in PATRONES_SQLI:
+        if patron.upper() in email.upper():
+            return {
+                "evento"    : "SQL_INJECTION",
+                "prioridad" : "CRITICA",
+                "sensor"    : CLIENT_ID,
+                "timestamp" : evento["timestamp"],
+                "ip"        : evento.get("ip"),
+                "usuario"   : evento.get("user_name"),
+                "email_raw" : email,
+                "patron"    : patron,
+            }
+    return None
+ 
+def detectar_xss(evento):
+    """Detecta XSS en el campo comentario de sugerencias."""
+    detalles = evento.get("details", {})
+    if not isinstance(detalles, dict):
+        return None
+    comentario = detalles.get("comentario", "")
+    for patron in PATRONES_XSS:
+        if patron.lower() in comentario.lower():
+            return {
+                "evento"     : "XSS_DETECTADO",
+                "prioridad"  : "ALTA",
+                "sensor"     : CLIENT_ID,
+                "timestamp"  : evento["timestamp"],
+                "ip"         : evento.get("ip"),
+                "usuario"    : evento.get("user_name"),
+                "rol"        : evento.get("role"),
+                "comentario" : comentario,
+                "patron"     : patron,
+            }
+    return None
+ 
+def detectar_fuerza_bruta_web(evento):
+    """Detecta fuerza bruta en el login web por acumulación de login_fallido por IP."""
+    if evento.get("action") != "login_fallido":
+        return None
+ 
+    ip = evento.get("ip", "desconocida")
+    try:
+        t = time.mktime(time.strptime(evento["timestamp"], "%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        t = time.time()
+ 
+    ahora = time.time()
+    if ip not in intentos_fallidos_web:
+        intentos_fallidos_web[ip] = []
+    intentos_fallidos_web[ip].append(t)
+    intentos_fallidos_web[ip] = [
+        ts for ts in intentos_fallidos_web[ip] if ahora - ts < VENTANA_FUERZA_BRUTA_WEB
+    ]
+ 
+    if len(intentos_fallidos_web[ip]) >= UMBRAL_FUERZA_BRUTA_WEB:
+        intentos_fallidos_web[ip] = []
+        return {
+            "evento"    : "FUERZA_BRUTA_LOGIN_WEB",
+            "prioridad" : "ALTA",
+            "sensor"    : CLIENT_ID,
+            "timestamp" : evento["timestamp"],
+            "ip"        : ip,
+            "intentos"  : UMBRAL_FUERZA_BRUTA_WEB,
+        }
+    return None
+ 
+def analizar_evento_web(evento):
+    """Devuelve una alerta si el evento es sospechoso, o None si es actividad normal."""
+    accion = evento.get("action", "")
+ 
+    if accion == "login_exitoso":
+        alerta = detectar_sqli(evento)
+        if alerta:
+            return alerta
+ 
+    if accion == "nueva_sugerencia":
+        alerta = detectar_xss(evento)
+        if alerta:
+            return alerta
+ 
+    if accion == "login_fallido":
+        alerta = detectar_fuerza_bruta_web(evento)
+        if alerta:
+            return alerta
+ 
+    return None
+ 
+# ==============================================================================
+# HILO MONITOR DE LA APP WEB (activity_logs.json)
+# El JSON es un array completo que se reescribe con cada nuevo evento.
+# Se compara el tamaño del array en cada ciclo para detectar entradas nuevas.
+# Los nuevos eventos están al principio porque el log es descendente.
+# ==============================================================================
+def cargar_logs_web():
+    """Lee el archivo JSON de la app y devuelve la lista de eventos, o [] si hay error."""
+    try:
+        with open(LOG_WEB, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError, OSError):
+        return []
+ 
+def hilo_monitor_web():
+    """Hilo dedicado a monitorizar activity_logs.json en tiempo real."""
+    logs_actuales = cargar_logs_web()
+    ultimo_total  = len(logs_actuales)
+    print(f"[WEB] Monitor app web activo | {ultimo_total} eventos históricos ignorados")
+ 
+    while True:
+        time.sleep(1)
+ 
+        logs_nuevos = cargar_logs_web()
+        total_nuevo = len(logs_nuevos)
+ 
+        if total_nuevo <= ultimo_total:
+            continue
+ 
+        n_nuevos = total_nuevo - ultimo_total
+        nuevos   = logs_nuevos[:n_nuevos]
+        ultimo_total = total_nuevo
+ 
+        print(f"[WEB] {n_nuevos} evento(s) nuevo(s) en activity_logs.json")
+ 
+        # Procesar del más antiguo al más reciente
+        for evento in reversed(nuevos):
+            alerta = analizar_evento_web(evento)
+ 
+            if alerta:
+                # Evento sospechoso → alerta inmediata en topic web/eventos
+                publicar(TOPIC_WEB_EVENTOS, alerta)
+            else:
+                # Evento normal → acumular para el resumen periódico
+                with lock:
+                    eventos_appweb_pendientes.append({
+                        "timestamp" : evento.get("timestamp"),
+                        "action"    : evento.get("action"),
+                        "user"      : evento.get("user_name"),
+                        "role"      : evento.get("role"),
+                        "ip"        : evento.get("ip"),
+                    })
+ 
+# ==============================================================================
+# BUCLE PRINCIPAL DE MONITORIZACIÓN (SSH, FTP, Apache)
 # ==============================================================================
 def monitorizar():
-    """Bucle principal: lee logs y publica alertas inmediatas o acumula para el resumen."""
-
-    # Arrancar el hilo periódico como daemon (se cierra solo si el proceso principal acaba)
-    hilo = threading.Thread(target=hilo_envio_periodico, daemon=True)
-    hilo.start()
-
-    # Abrir los archivos de log y posicionarse al final para leer solo nuevas líneas
+    """Bucle principal: lee logs de sistema y publica alertas o acumula para resumen."""
+ 
+    # Hilo periódico de resúmenes
+    hilo_periodico = threading.Thread(target=hilo_envio_periodico, daemon=True)
+    hilo_periodico.start()
+ 
+    # Hilo de monitorización de la app web
+    hilo_web = threading.Thread(target=hilo_monitor_web, daemon=True)
+    hilo_web.start()
+ 
+    # Abrir los archivos de log y posicionarse al final
     f_ftp = open(LOG_FTP,    "r")
     f_web = open(LOG_APACHE, "r")
     f_ftp.seek(0, 2)
     f_web.seek(0, 2)
-
-    # Lanzar journalctl en modo seguimiento para capturar logs SSH del sistema
+ 
+    # Lanzar journalctl para SSH
     proc_ssh = subprocess.Popen(
         ['journalctl', '-u', 'ssh', '-f', '-n', '0'],
         stdout=subprocess.PIPE,
         text=True
     )
-
+ 
     print(f"--- Agente SOC activo | Alertas inmediatas + Resumen cada {INTERVALO_ENVIO}s ---")
-
+ 
     try:
         while True:
-
+ 
             # ------------------------------------------------------------------
             # 1. FTP: detectar fallos de login
-            # Si una IP acumula >= UMBRAL_INTENTOS en VENTANA_TIEMPO → ALERTA INMEDIATA
-            # El resto se acumula para el resumen periódico
             # ------------------------------------------------------------------
             linea_ftp = f_ftp.readline()
             if linea_ftp:
@@ -167,17 +338,15 @@ def monitorizar():
                 if match:
                     user, ip = match.groups()
                     ahora = time.time()
-
-                    # Registrar intento y limpiar los que han caducado
+ 
                     if ip not in intentos_fallidos_ftp:
                         intentos_fallidos_ftp[ip] = []
                     intentos_fallidos_ftp[ip].append(ahora)
                     intentos_fallidos_ftp[ip] = [
-                        t for t in intentos_fallidos_ftp[ip] if ahora - t < VENTANA_TIEMPO
+                        t for t in intentos_fallidos_ftp[ip] if ahora - t < VENTANA_TIEMPO_FTP
                     ]
-
-                    if len(intentos_fallidos_ftp[ip]) >= UMBRAL_INTENTOS:
-                        # Supera el umbral → alerta inmediata de ataque de diccionario
+ 
+                    if len(intentos_fallidos_ftp[ip]) >= UMBRAL_INTENTOS_FTP:
                         publicar(TOPIC_EVENTOS, {
                             "evento"    : "ATAQUE_DICCIONARIO_FTP",
                             "ip"        : ip,
@@ -185,17 +354,15 @@ def monitorizar():
                             "prioridad" : "ALTA",
                             "timestamp" : time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                         })
-                        intentos_fallidos_ftp[ip] = []  # Resetear contador tras la alerta
+                        intentos_fallidos_ftp[ip] = []
                     else:
-                        # Por debajo del umbral → acumular para resumen
                         with lock:
                             eventos_ftp_pendientes.append({
                                 "ip": ip, "user": user, "t": ahora
                             })
-
+ 
             # ------------------------------------------------------------------
             # 2. WEB (Apache): acumular peticiones para el resumen periódico
-            # No se generan alertas inmediatas de tráfico web normal
             # ------------------------------------------------------------------
             linea_web = f_web.readline()
             if linea_web:
@@ -206,10 +373,9 @@ def monitorizar():
                         accesos_web_pendientes.append({
                             "ip": ip_web, "ruta": ruta, "t": time.time()
                         })
-
+ 
             # ------------------------------------------------------------------
             # 3. SSH: alerta inmediata por cada fallo de autenticación
-            # También se acumula en la lista para el resumen periódico
             # ------------------------------------------------------------------
             if select.select([proc_ssh.stdout], [], [], 0.01)[0]:
                 linea_ssh = proc_ssh.stdout.readline()
@@ -221,22 +387,20 @@ def monitorizar():
                         "user"      : user_ssh,
                         "timestamp" : time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
                     }
-                    # Alerta inmediata
                     publicar(TOPIC_EVENTOS, {
                         **evento,
                         "evento"    : "FALLO_SSH",
                         "prioridad" : "MEDIA"
                     })
-                    # También acumular para resumen
                     with lock:
                         eventos_ssh_pendientes.append(evento)
-
-            time.sleep(0.1)  # Pequeña pausa para no saturar la CPU
-
+ 
+            time.sleep(0.1)
+ 
     except KeyboardInterrupt:
         print("\n[*] Agente detenido por el usuario.")
         mqtt_client.disconnect()
-
+ 
 # ==============================================================================
 # PUNTO DE ENTRADA
 # ==============================================================================

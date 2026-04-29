@@ -1,8 +1,15 @@
 <?php
-$page_title = 'Panel de Control';
+require_once 'db.php';
+require_once 'includes/session_control.php';
+// Header ya inicia la sesión
+$page_title = 'Panel Live';
 require 'includes/header.php';
+
+if (!validar_sesion_activa($pdo)) {
+    header('Location: login.php');
+    exit;
+}
 require 'includes/navbar.php';
-require 'db.php';
 
 // ── Totales globales ─────────────────────────────────────────────────────────
 $detectados = (int) $pdo->query('SELECT COUNT(*) FROM eventos WHERE tipo = "detectado"')->fetchColumn();
@@ -50,10 +57,13 @@ $ultimosEventos = $pdo->query('
             <span class="badge-cyber mb-2 d-inline-block">Sistema activo</span>
             <h1 class="section-title mb-0">Panel de Control</h1>
         </div>
-        <span class="text-muted small">
-            <i class="bi bi-arrow-clockwise me-1"></i>
-            Actualizado: <?= date('d/m/Y H:i:s') ?>
-        </span>
+        <div>
+            <a href="sugerencias.php" class="btn-outline-cyber me-2"><i class="bi bi-lightbulb me-1"></i>Sugerir Mejora</a>
+            <span class="text-muted small">
+                <i class="bi bi-arrow-clockwise me-1"></i>
+                Actualizado: <?= date('d/m/Y H:i:s') ?>
+            </span>
+        </div>
     </div>
 
     <!-- KPIs -->
