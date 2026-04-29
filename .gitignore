@@ -1,1 +1,7 @@
 PI-4/Pagina web/logs/activity_logs.json
+
+basura/
+.agents/
+.claude/
+.windsurf/
+*.zip
