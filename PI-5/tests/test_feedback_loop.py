@@ -54,20 +54,22 @@ def run_test():
 
     # Importar herramientas después de fijar el path
     from tools.iot_tools import init_iot_tools, execute_remote_command
-    from tools.db_tools import register_alert, update_mitigation_status
+    from tools.db_tools import register_alert, update_alert_status
 
     # 1. Inyectar cliente mock
     mock_iot = MockIotClient()
     init_iot_tools(mock_iot)
     print("\n[PASO 1] Cliente MQTT mock inyectado ✔")
 
-    # 2. Registrar una alerta simulada
+    # 2. Registrar una alerta simulada (usando la firma real de register_alert)
     print("\n[PASO 2] Registrando alerta de ataque RCE...")
     result_alert = register_alert(
-        dispositivo="Pi4-Test",
-        tipo_alerta="RCE_ATTACK",
-        descripcion="Inyección de comando detectada desde 10.0.0.55",
-        log_original='{"evento":"RCE_ATTACK","ip":"10.0.0.55","patron":"Command Injection"}',
+        device="Pi4-Test",
+        attack_vector="NGINX-HTTP",
+        source_ip="10.0.0.55",
+        severity="Alta",
+        verdict="Inyección de comando detectada vía POST /api/exec. Patrón coincide con RCE.",
+        raw_log='{"evento":"RCE_ATTACK","ip":"10.0.0.55","patron":"Command Injection"}',
     )
     print(f"  Resultado: {result_alert}")
 
@@ -76,6 +78,7 @@ def run_test():
     result_cmd = execute_remote_command(
         device="Pi4-Test",
         command="sudo systemctl stop nginx",
+        reason="Detener servicio comprometido tras RCE confirmado",
     )
     print(f"  Resultado: {result_cmd}")
 
@@ -86,20 +89,20 @@ def run_test():
         print("  ❌ El mock NO interceptó ningún comando")
 
     # 4. Simular respuesta exitosa del sensor → actualizar mitigación
-    print("\n[PASO 4] Simulando feedback exitoso → update_mitigation_status...")
-    result_update = update_mitigation_status(
-        dispositivo="Pi4-Test",
-        status="success",
-        output="nginx.service successfully stopped.",
+    print("\n[PASO 4] Simulando feedback exitoso → update_alert_status...")
+    result_ok = update_alert_status(
+        device="Pi4-Test",
+        command_result="nginx.service successfully stopped.",
+        mitigation_status="EXITO",
     )
-    print(f"  Resultado: {result_update}")
+    print(f"  Resultado: {result_ok}")
 
     # 5. Simular respuesta de error → actualizar mitigación
-    print("\n[PASO 5] Simulando feedback con error → update_mitigation_status...")
-    result_err = update_mitigation_status(
-        dispositivo="Pi4-Test",
-        status="error",
-        output="Failed to stop nginx: Unit nginx.service not loaded.",
+    print("\n[PASO 5] Simulando feedback con error → update_alert_status...")
+    result_err = update_alert_status(
+        device="Pi4-Test",
+        command_result="Failed to stop nginx: Unit nginx.service not loaded.",
+        mitigation_status="FALLO",
     )
     print(f"  Resultado: {result_err}")
 
@@ -107,14 +110,14 @@ def run_test():
     print_section("📊  Estado de la Base de Datos")
     try:
         rows = query_db(
-            "SELECT id, dispositivo, tipo_alerta, accion_tomada, estado_mitigacion "
+            "SELECT id, dispositivo, servicio, accion_tomada, estado_mitigacion "
             "FROM logs ORDER BY id DESC LIMIT 5"
         )
         if rows:
             for r in rows:
                 print(
                     f"  ID={r['id']}  disp={r['dispositivo']}  "
-                    f"tipo={r['tipo_alerta']}  accion={r['accion_tomada']}  "
+                    f"servicio={r['servicio']}  accion={r['accion_tomada']}  "
                     f"estado={r['estado_mitigacion']}"
                 )
         else:
@@ -124,13 +127,17 @@ def run_test():
 
     # 7. Resultado final
     print_section("RESULTADO FINAL")
-    ok = (
-        "correctamente" in str(result_alert).lower() or "registrado" in str(result_alert).lower()
-    )
-    print(f"  register_alert:          {'✅' if ok else '⚠️'}  {result_alert[:80]}")
-    print(f"  execute_remote_command:  {'✅' if mock_iot.commands_sent else '❌'}  mock={len(mock_iot.commands_sent)} cmd(s)")
-    print(f"  update_mitigation(ok):   {result_update[:80]}")
-    print(f"  update_mitigation(err):  {result_err[:80]}")
+    alert_ok = result_alert.get("status") == "success"
+    cmd_ok = result_cmd.get("status") == "action_sent"
+    fb_ok = result_ok.get("status") == "success"
+    
+    print(f"  register_alert:          {'✅' if alert_ok else '❌'}  {result_alert}")
+    print(f"  execute_remote_command:  {'✅' if cmd_ok else '❌'}  mock={len(mock_iot.commands_sent)} cmd(s)")
+    print(f"  update_alert_status(ok): {'✅' if fb_ok else '❌'}  {result_ok}")
+    print(f"  update_alert_status(err):{'⚠️ ' if result_err.get('status') == 'success' else '❌'}  {result_err}")
+    
+    all_pass = alert_ok and cmd_ok and fb_ok
+    print(f"\n  {'🎉 TODOS LOS TESTS PASARON' if all_pass else '⚠️  Algunos tests fallaron'}")
     print()
 
 

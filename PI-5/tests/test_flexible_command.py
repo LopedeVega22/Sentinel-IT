@@ -1,25 +1,22 @@
 """
 Test E2E de comunicación MQTT para el bucle de feedback SOC.
 
-Este test se ejecuta DENTRO del contenedor Docker del coordinador y
-reutiliza la conexión MQTT existente del coordinador para evitar
-conflictos de client-ID con AWS IoT Core (solo permite 1 conexión
-por certificado).
+IMPORTANTE: AWS IoT Core tiene dos restricciones clave:
+  1. La Policy solo permite client-IDs: Pi5-dani, Pi4-felix, Dashboard-SOC-Pi5
+  2. La Policy solo permite topics bajo: seguridad/*
 
-Flujo:
-  1. Se suscribe al topic de salida del sensor (comandos/+/out).
-  2. Se suscribe al topic de acciones del sensor (comandos/Pi4-Felix)
-     actuando como "Mock Pi 4" que responde automáticamente.
-  3. Publica un comando seguro y espera la respuesta simulada.
-  4. Publica un comando peligroso (blacklist) y espera el bloqueo.
-  5. Valida las respuestas recibidas.
+Por tanto, este test PARA el coordinador principal temporalmente,
+usa su client-ID (Pi5-dani) para conectarse, ejecuta las pruebas,
+y luego informa de que el coordinador debe reiniciarse.
+
+Alternativa: ejecutar CON el coordinador corriendo pero usando
+el client-ID "Dashboard-SOC-Pi5" que también está autorizado.
 """
 import yaml
 import sys
 import os
 import time
 import json
-import threading
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -91,12 +88,14 @@ def test():
         CERT_PATH  = config["aws"]["cert_path"]
         KEY_PATH   = config["aws"]["key_path"]
         ROOT_CA    = config["aws"]["root_ca"]
+        TOPIC_ACTIONS_BASE = config["mqtt"]["topic_actions_base"]
     except Exception as e:
         print(f"[ERROR] Cargando config: {e}")
         return
 
-    # Usar un client-ID ÚNICO distinto al coordinador para no desplazarlo
-    CLIENT_ID = f"E2E-Tester-{int(time.time()) % 10000}"
+    # Usar Dashboard-SOC-Pi5 ya que es un client-ID autorizado en la Policy
+    # y distinto al coordinador principal (Pi5-dani) que puede estar corriendo
+    CLIENT_ID = "Dashboard-SOC-Pi5"
 
     client = AWSMqttClient(
         endpoint=ENDPOINT,
@@ -107,8 +106,9 @@ def test():
     )
 
     TARGET = "Pi4-Felix"
-    topic_comandos = f"comandos/{TARGET}"
-    topic_out      = f"comandos/{TARGET}/out"
+    # Usar los topics autorizados en la Policy (seguridad/*)
+    topic_comandos = f"{TOPIC_ACTIONS_BASE}{TARGET}"
+    topic_out      = f"{TOPIC_ACTIONS_BASE}{TARGET}/out"
 
     try:
         print("=" * 60)
@@ -120,9 +120,10 @@ def test():
         # 1. Registrar Mock de la Pi 4
         mock_pi4(client, topic_comandos, topic_out)
 
-        # 2. Escuchar las respuestas
-        client.subscribe("comandos/+/out", on_feedback)
-        print("[INFO] Suscrito a comandos/+/out")
+        # 2. Escuchar las respuestas en el topic de salida
+        feedback_topic = f"{TOPIC_ACTIONS_BASE}+/out"
+        client.subscribe(feedback_topic, on_feedback)
+        print(f"[INFO] Suscrito a {feedback_topic}")
         time.sleep(2)
 
         # ── Caso 1: comando seguro ───────────────────────────────
