@@ -312,10 +312,10 @@ def get_sys_info():
         ip_local = s.getsockname()[0]
         s.close()
     except Exception:
-        cpu = 18.0
-        ram = 42.0
-        uptime_str = "15d 8h 32m"
-        ip_local = "192.168.1.105"
+        cpu = "N/A"
+        ram = "N/A"
+        uptime_str = "Error"
+        ip_local = "N/A"
         
     return {
         "cpu": cpu,
