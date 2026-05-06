@@ -542,8 +542,18 @@
                                         <span style="font-size: 0.72rem; color: var(--text-muted);">{{ row[7] }}</span>
                                         {% if row[9] == 'PENDING' %}
                                         <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>
-                                        {% elif row[10] and row[10]|trim != '' %}
-                                        <button onclick="showViewCommandModal('{{ row[10] | escape }}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
+                                        {% else %}
+                                            {% set action_lower = row[7]|lower %}
+                                            {% set cmd_to_show = row[10] %}
+                                            {% if not cmd_to_show or cmd_to_show|trim == '' %}
+                                                {% if 'bloque' in action_lower %}
+                                                    {% set cmd_to_show = 'sudo iptables -A INPUT -s ' ~ row[4] ~ ' -j DROP  # (Comando inferido)' %}
+                                                {% endif %}
+                                            {% endif %}
+                                            
+                                            {% if cmd_to_show and cmd_to_show|trim != '' %}
+                                            <button onclick="showViewCommandModal('{{ cmd_to_show | escape }}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
+                                            {% endif %}
                                         {% endif %}
                                         
                                         {% set action_lower = row[7]|lower %}
@@ -1048,8 +1058,16 @@
                     
                     if (log.status === 'PENDING') {
                         actionHtml += `<button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}', '${escapeHtml(log.rationale).replace(/'/g, "\\'")}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>`;
-                    } else if (log.pending_command && log.pending_command.trim() !== '') {
-                        actionHtml += `<button onclick="showViewCommandModal('${escapeHtml(log.pending_command).replace(/'/g, "\\'")}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
+                    } else {
+                        let cmdToShow = log.pending_command;
+                        if (!cmdToShow || cmdToShow.trim() === '') {
+                            if (actionLower.includes('bloque')) {
+                                cmdToShow = `sudo iptables -A INPUT -s ${log.source_ip} -j DROP  # (Comando inferido)`;
+                            }
+                        }
+                        if (cmdToShow && cmdToShow.trim() !== '') {
+                            actionHtml += `<button onclick="showViewCommandModal('${escapeHtml(cmdToShow).replace(/'/g, "\\'")}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
+                        }
                     }
 
                     if (actionLower.includes('bloque') && !actionLower.includes('[revertido]')) {
