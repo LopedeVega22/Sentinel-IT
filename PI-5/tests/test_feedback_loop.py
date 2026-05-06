@@ -53,7 +53,7 @@ def run_test():
     print_section("🛡️  TEST OFFLINE – Ciclo de Feedback SOC")
 
     # Importar herramientas después de fijar el path
-    from tools.iot_tools import init_iot_tools, execute_remote_command
+    from tools.iot_tools import init_iot_tools, execute_diagnostic_command
     from tools.db_tools import register_alert, update_alert_status
 
     # 1. Inyectar cliente mock
@@ -75,10 +75,10 @@ def run_test():
 
     # 3. Enviar un comando remoto (se intercepta por el mock)
     print("\n[PASO 3] Enviando comando remoto a Pi4-Test...")
-    result_cmd = execute_remote_command(
+    result_cmd = execute_diagnostic_command(
         device="Pi4-Test",
-        command="sudo systemctl stop nginx",
-        reason="Detener servicio comprometido tras RCE confirmado",
+        command="sudo systemctl status nginx",
+        reason="Comprobar servicio comprometido tras RCE confirmado",
     )
     print(f"  Resultado: {result_cmd}")
 
