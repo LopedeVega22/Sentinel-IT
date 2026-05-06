@@ -1,1279 +1,725 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sentinel-IT | SOC Intelligence Dashboard</title>
-    <meta name="description" content="Real-time autonomous SOC dashboard powered by Google Gemini ADK for AI-driven threat analysis and mitigation.">
-
+    <title>Sentinel-IT | SOC Dashboard</title>
+    <meta name="description" content="Real-time autonomous SOC dashboard powered by Google Gemini ADK.">
+    
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- ECharts CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 
     <style>
         /* ============================================================
-           DESIGN SYSTEM — Matte Clean + Subtle Depth
+           DESIGN SYSTEM — Cyber Glassmorphism
            ============================================================ */
         :root {
-            --bg-primary: #0f1117;
-            --bg-secondary: #161822;
-            --bg-card: #1c1f2e;
-            --bg-card-hover: #242839;
-            --bg-elevated: #222639;
+            /* Fondos muy oscuros con tinte azul */
+            --bg-primary: #060913;
+            --bg-sidebar: #0a0e1c;
+            --bg-card: rgba(14, 20, 36, 0.6);
+            --bg-card-hover: rgba(20, 28, 48, 0.8);
+            
+            /* Bordes glassmorphism */
+            --border-subtle: rgba(91, 156, 246, 0.15);
+            --border-medium: rgba(91, 156, 246, 0.3);
+            --border-glow: rgba(91, 156, 246, 0.5);
 
-            --border-subtle: rgba(255, 255, 255, 0.06);
-            --border-medium: rgba(255, 255, 255, 0.1);
+            /* Textos */
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
 
-            --text-primary: #e8eaed;
-            --text-secondary: #8b92a5;
-            --text-muted: #5c6378;
+            /* Acentos */
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-orange: #f97316;
+            --accent-purple: #8b5cf6;
 
-            /* Accent palette — matte tones */
-            --accent-blue: #5b9cf6;
-            --accent-cyan: #4ecdc4;
-            --accent-green: #34d399;
-            --accent-yellow: #fbbf24;
-            --accent-orange: #fb923c;
-            --accent-red: #f87171;
-            --accent-purple: #a78bfa;
+            /* Sombras y Glows */
+            --glow-blue: 0 0 15px rgba(59, 130, 246, 0.3);
+            --glow-red: 0 0 15px rgba(239, 68, 68, 0.3);
+            --glow-green: 0 0 15px rgba(16, 185, 129, 0.2);
 
-            /* Severity semantic colors */
-            --sev-critical: #ef4444;
-            --sev-critical-bg: rgba(239, 68, 68, 0.12);
-            --sev-high: #f97316;
-            --sev-high-bg: rgba(249, 115, 22, 0.12);
-            --sev-medium: #eab308;
-            --sev-medium-bg: rgba(234, 179, 8, 0.12);
-            --sev-low: #22c55e;
-            --sev-low-bg: rgba(34, 197, 94, 0.12);
-
-            --radius-sm: 8px;
             --radius-md: 12px;
-            --radius-lg: 16px;
-
-            --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.25);
-            --shadow-elevated: 0 8px 32px rgba(0, 0, 0, 0.4);
-
-            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+            --font-main: 'Inter', sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
-
         html { scroll-behavior: smooth; }
 
         body {
             font-family: var(--font-main);
             background: var(--bg-primary);
+            background-image: radial-gradient(circle at 50% 0%, #111a30 0%, #060913 60%);
             color: var(--text-primary);
             min-height: 100vh;
             line-height: 1.5;
             -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
         }
 
         /* ============================================================
-           LAYOUT
+           LAYOUT: Sidebar + Main
            ============================================================ */
-        .app-wrapper {
+        .app-layout {
             display: flex;
-            flex-direction: column;
             min-height: 100vh;
         }
 
-        .container {
-            max-width: 1440px;
-            margin: 0 auto;
-            padding: 0 28px;
-            width: 100%;
-        }
-
-        /* ============================================================
-           NAVBAR
-           ============================================================ */
-        .navbar {
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-subtle);
-            padding: 0 28px;
-            height: 64px;
+        /* --- SIDEBAR --- */
+        .sidebar {
+            width: 260px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-subtle);
             display: flex;
-            align-items: center;
-            justify-content: space-between;
+            flex-direction: column;
+            padding: 24px 20px;
             position: sticky;
             top: 0;
+            height: 100vh;
             z-index: 100;
         }
 
-        .nav-brand {
+        .brand {
             display: flex;
             align-items: center;
             gap: 12px;
+            margin-bottom: 40px;
         }
+        .brand svg { color: var(--accent-blue); filter: drop-shadow(0 0 8px rgba(59,130,246,0.5)); }
+        .brand-text h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; }
+        .brand-text span { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
 
-        .nav-brand svg { flex-shrink: 0; }
-
-        .nav-brand h1 {
-            font-size: 1.15rem;
-            font-weight: 700;
-            letter-spacing: -0.3px;
-            color: var(--text-primary);
+        .agent-status-box {
+            background: rgba(16, 185, 129, 0.05);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 24px;
+            box-shadow: var(--glow-green);
         }
-
-        .nav-brand h1 span {
-            font-weight: 400;
-            color: var(--text-muted);
-            margin-left: 4px;
-            font-size: 0.9rem;
+        .sonar-wrapper { position: relative; width: 60px; height: 60px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; }
+        .sonar-core { width: 16px; height: 16px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 10px var(--accent-green); z-index: 2; }
+        .sonar-ring {
+            position: absolute; width: 100%; height: 100%; border-radius: 50%;
+            border: 2px solid var(--accent-green); opacity: 0;
+            animation: sonar 2s infinite ease-out;
         }
-
-        .nav-right {
-            display: flex;
-            align-items: center;
-            gap: 16px;
+        @keyframes sonar {
+            0% { transform: scale(0.2); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 0; }
         }
+        .agent-label { font-size: 0.75rem; font-weight: 700; color: var(--accent-green); letter-spacing: 1px; }
 
-        .status-pill {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 14px;
-            border-radius: 20px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-            text-transform: uppercase;
+        .sys-info { margin-bottom: 30px; }
+        .sys-info-item { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 12px; color: var(--text-secondary); }
+        .sys-info-val { font-family: var(--font-mono); color: var(--text-primary); }
+
+        .nav-menu { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+        .nav-link {
+            display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+            border-radius: 8px; color: var(--text-secondary); text-decoration: none;
+            font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
         }
+        .nav-link.active { background: rgba(59, 130, 246, 0.1); color: var(--accent-blue); border-left: 3px solid var(--accent-blue); }
+        .nav-link:hover:not(.active) { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
 
-        .status-pill.online {
-            background: rgba(34, 197, 94, 0.1);
-            color: var(--accent-green);
-            border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-
-        .status-pill.offline {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--accent-red);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .status-dot {
-            width: 7px;
-            height: 7px;
-            border-radius: 50%;
-            background: currentColor;
-            animation: pulse-dot 2s ease-in-out infinite;
-        }
-
-        .mqtt-indicator {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .mqtt-indicator .dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-        }
-
-        .mqtt-indicator .dot.on { background: var(--accent-green); }
-        .mqtt-indicator .dot.off { background: var(--accent-red); }
-
-        /* ============================================================
-           MAIN CONTENT
-           ============================================================ */
+        /* --- MAIN CONTENT --- */
         .main-content {
             flex: 1;
-            padding: 28px 0 40px;
-        }
-
-        /* ============================================================
-           KPI GRID
-           ============================================================ */
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 16px;
-            margin-bottom: 28px;
-        }
-
-        .kpi-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            padding: 22px 24px;
             display: flex;
             flex-direction: column;
-            gap: 8px;
-            transition: border-color 0.2s ease, transform 0.2s ease;
+            min-width: 0;
+        }
+
+        .topbar {
+            height: 70px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+            background: rgba(6, 9, 19, 0.8);
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 90;
+        }
+        .search-bar { background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border-subtle); border-radius: 20px; padding: 8px 16px; display: flex; align-items: center; gap: 8px; width: 300px; }
+        .search-bar input { background: transparent; border: none; color: var(--text-primary); outline: none; width: 100%; font-size: 0.85rem; }
+        
+        .top-right { display: flex; align-items: center; gap: 20px; }
+        .time-filters { display: flex; background: rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 4px; }
+        .filter-btn { background: transparent; border: none; color: var(--text-secondary); padding: 4px 12px; font-size: 0.8rem; border-radius: 4px; cursor: pointer; }
+        .filter-btn.active { background: var(--border-medium); color: var(--text-primary); }
+
+        .content-wrapper { padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+
+        /* --- PANELS (Glassmorphism) --- */
+        .panel {
+            background: var(--bg-card);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
             position: relative;
             overflow: hidden;
         }
-
-        .kpi-card:hover {
-            border-color: var(--border-medium);
-            transform: translateY(-2px);
-        }
-
-        .kpi-card .kpi-label {
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: var(--text-muted);
-        }
-
-        .kpi-card .kpi-value {
-            font-family: var(--font-mono);
-            font-size: 2rem;
-            font-weight: 700;
-            letter-spacing: -1px;
-            line-height: 1;
-        }
-
-        .kpi-card .kpi-sub {
-            font-size: 0.78rem;
-            color: var(--text-secondary);
-        }
-
-        /* KPI accent variants */
-        .kpi-card.kpi-total { border-top: 3px solid var(--accent-blue); }
-        .kpi-card.kpi-total .kpi-value { color: var(--accent-blue); }
-
-        .kpi-card.kpi-critical { border-top: 3px solid var(--sev-critical); }
-        .kpi-card.kpi-critical .kpi-value { color: var(--sev-critical); }
-
-        .kpi-card.kpi-blocked { border-top: 3px solid var(--accent-cyan); }
-        .kpi-card.kpi-blocked .kpi-value { color: var(--accent-cyan); }
-
-        .kpi-card.kpi-vectors { border-top: 3px solid var(--accent-purple); }
-        .kpi-card.kpi-vectors .kpi-value { color: var(--accent-purple); }
-
-        .kpi-card.kpi-threat { border-top: 3px solid var(--accent-orange); }
-
-        /* Threat gauge */
-        .threat-gauge {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .gauge-ring {
-            position: relative;
-            width: 56px;
-            height: 56px;
-            flex-shrink: 0;
-        }
-
-        .gauge-ring svg { transform: rotate(-90deg); }
-
-        .gauge-ring .gauge-bg {
-            fill: none;
-            stroke: rgba(255, 255, 255, 0.06);
-            stroke-width: 5;
-        }
-
-        .gauge-ring .gauge-fill {
-            fill: none;
-            stroke-width: 5;
-            stroke-linecap: round;
-            transition: stroke-dashoffset 1s ease, stroke 0.5s ease;
-        }
-
-        .gauge-ring .gauge-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-family: var(--font-mono);
-            font-size: 0.85rem;
-            font-weight: 700;
-        }
-
-        .threat-label {
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        /* ============================================================
-           TWO-COLUMN LAYOUT: Vector Chart + Stats
-           ============================================================ */
-        .analytics-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 28px;
-        }
-
-        .panel {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            padding: 24px;
+        .panel::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
         }
 
         .panel-title {
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: var(--text-secondary);
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 1px; color: var(--text-secondary); margin-bottom: 16px;
+            display: flex; align-items: center; gap: 8px;
         }
 
-        .panel-title svg { color: var(--text-muted); }
+        /* --- KPI GRID --- */
+        .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+        .kpi-card { display: flex; flex-direction: column; gap: 8px; }
+        .kpi-header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .kpi-val { font-family: var(--font-mono); font-size: 2.5rem; font-weight: 700; line-height: 1; }
+        .kpi-trend { font-size: 0.75rem; display: flex; align-items: center; gap: 4px; }
+        .kpi-trend.up { color: var(--accent-red); }
+        .kpi-trend.down { color: var(--accent-green); }
+        
+        .kpi-total .kpi-val { color: var(--accent-blue); text-shadow: var(--glow-blue); }
+        .kpi-crit .kpi-val { color: var(--accent-red); text-shadow: var(--glow-red); }
+        .kpi-block .kpi-val { color: var(--accent-green); text-shadow: var(--glow-green); }
+        .kpi-threat { display: flex; align-items: center; gap: 16px; }
 
-        /* Vector bars */
-        .vector-bar-list {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
+        /* --- MIDDLE ROW (MAP & RADAR) --- */
+        .middle-row { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+        .chart-container { width: 100%; height: 350px; }
 
-        .vector-bar-item {
-            display: grid;
-            grid-template-columns: 90px 1fr 50px;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .vector-bar-label {
-            font-family: var(--font-mono);
-            font-size: 0.78rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .vector-bar-track {
-            height: 8px;
-            background: rgba(255, 255, 255, 0.04);
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .vector-bar-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 1s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        .vector-bar-pct {
-            font-family: var(--font-mono);
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-            text-align: right;
-        }
-
-        /* Vector colors cycling */
-        .vector-bar-item:nth-child(1) .vector-bar-fill { background: var(--accent-blue); }
-        .vector-bar-item:nth-child(2) .vector-bar-fill { background: var(--accent-cyan); }
-        .vector-bar-item:nth-child(3) .vector-bar-fill { background: var(--accent-orange); }
-        .vector-bar-item:nth-child(4) .vector-bar-fill { background: var(--accent-purple); }
-        .vector-bar-item:nth-child(5) .vector-bar-fill { background: var(--accent-green); }
-        .vector-bar-item:nth-child(6) .vector-bar-fill { background: var(--accent-yellow); }
-        .vector-bar-item:nth-child(7) .vector-bar-fill { background: var(--accent-red); }
-        .vector-bar-item:nth-child(8) .vector-bar-fill { background: var(--text-muted); }
-
-        .empty-state {
-            color: var(--text-muted);
-            font-size: 0.85rem;
-            text-align: center;
-            padding: 32px 0;
-            font-style: italic;
-        }
-
-        /* Recent activity panel */
-        .activity-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .activity-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 12px;
-            background: rgba(255, 255, 255, 0.02);
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border-subtle);
-            transition: border-color 0.2s;
-        }
-
-        .activity-item:hover {
-            border-color: var(--border-medium);
-        }
-
-        .activity-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            font-size: 0.7rem;
-            font-weight: 700;
-        }
-
-        .activity-icon.sev-critical { background: var(--sev-critical-bg); color: var(--sev-critical); }
-        .activity-icon.sev-high { background: var(--sev-high-bg); color: var(--sev-high); }
-        .activity-icon.sev-medium { background: var(--sev-medium-bg); color: var(--sev-medium); }
-        .activity-icon.sev-low { background: var(--sev-low-bg); color: var(--sev-low); }
-
-        .activity-body { flex: 1; min-width: 0; }
-
-        .activity-body .activity-title {
-            font-size: 0.82rem;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 2px;
-        }
-
-        .activity-body .activity-meta {
-            font-size: 0.72rem;
-            color: var(--text-muted);
-            font-family: var(--font-mono);
-        }
-
-        /* ============================================================
-           THREAT FEED TABLE
-           ============================================================ */
-        .feed-section {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-md);
-            overflow: hidden;
-        }
-
-        .feed-header {
-            padding: 20px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid var(--border-subtle);
-        }
-
-        .feed-header h2 {
-            font-size: 0.8rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            color: var(--text-secondary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .feed-header .feed-count {
-            font-family: var(--font-mono);
-            font-size: 0.72rem;
-            color: var(--text-muted);
-            background: rgba(255, 255, 255, 0.04);
-            padding: 3px 10px;
-            border-radius: 12px;
-        }
-
-        .table-responsive {
-            overflow-x: auto;
-        }
-
-        .table-responsive::-webkit-scrollbar { height: 6px; }
-        .table-responsive::-webkit-scrollbar-track { background: transparent; }
-        .table-responsive::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
+        /* --- TABLE --- */
+        .feed-section { flex: 1; display: flex; flex-direction: column; }
+        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; min-width: 1100px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+        
+        colgroup .col-time { width: 9%; }
+        colgroup .col-sev { width: 9%; }
+        colgroup .col-ip { width: 11%; }
+        colgroup .col-target { width: 12%; }
+        colgroup .col-verdict { width: 20%; }
+        colgroup .col-log { width: 19%; }
+        colgroup .col-action { width: 20%; }
 
         th {
-            padding: 12px 20px;
-            background: rgba(0, 0, 0, 0.2);
-            color: var(--text-muted);
-            font-weight: 600;
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            text-align: left;
-            white-space: nowrap;
-            border-bottom: 1px solid var(--border-subtle);
+            padding: 12px 16px; background: rgba(0, 0, 0, 0.3);
+            color: var(--text-muted); font-size: 0.7rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 1px; text-align: left;
+            border-bottom: 1px solid var(--border-medium);
         }
-
         td {
-            padding: 14px 20px;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
-            vertical-align: middle;
+            padding: 14px 16px; font-size: 0.82rem; color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03); vertical-align: top;
+            word-wrap: break-word; transition: background 0.2s;
         }
+        tr:hover td { background: rgba(255, 255, 255, 0.02); }
 
-        tr { transition: background 0.15s ease; }
-        tr:hover { background: rgba(255, 255, 255, 0.02); }
-        tr:last-child td { border-bottom: none; }
-
-        /* Node + vector cell */
-        .cell-node {
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-        }
-
-        .cell-node-name {
-            font-weight: 600;
-            color: var(--text-primary);
-            font-size: 0.85rem;
-        }
-
-        .cell-node-vector {
-            font-family: var(--font-mono);
-            font-size: 0.68rem;
-            font-weight: 600;
-            color: var(--accent-blue);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        /* Severity badge */
         .sev-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 10px; border-radius: 4px; font-size: 0.7rem;
+            font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
         }
+        .sev-badge.critical { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); border: 1px solid rgba(239,68,68,0.3); box-shadow: inset 0 0 10px rgba(239,68,68,0.1); }
+        .sev-badge.high { background: rgba(249, 115, 22, 0.15); color: var(--accent-orange); border: 1px solid rgba(249,115,22,0.3); }
+        .sev-badge.medium { background: rgba(251, 191, 36, 0.15); color: var(--accent-yellow); border: 1px solid rgba(251,191,36,0.3); }
+        .sev-badge.low { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); border: 1px solid rgba(16,185,129,0.3); }
 
-        .sev-badge.critical {
-            background: var(--sev-critical-bg);
-            color: var(--sev-critical);
-            border: 1px solid rgba(239, 68, 68, 0.25);
-        }
-
-        .sev-badge.high {
-            background: var(--sev-high-bg);
-            color: var(--sev-high);
-            border: 1px solid rgba(249, 115, 22, 0.25);
-        }
-
-        .sev-badge.medium {
-            background: var(--sev-medium-bg);
-            color: var(--sev-medium);
-            border: 1px solid rgba(234, 179, 8, 0.25);
-        }
-
-        .sev-badge.low {
-            background: var(--sev-low-bg);
-            color: var(--sev-low);
-            border: 1px solid rgba(34, 197, 94, 0.25);
-        }
-
-        .sev-badge.none {
-            background: rgba(255, 255, 255, 0.04);
-            color: var(--text-muted);
-            border: 1px solid var(--border-subtle);
-        }
-
-        /* IP cell */
-        .cell-ip {
-            font-family: var(--font-mono);
-            font-weight: 600;
-            font-size: 0.85rem;
-            color: var(--text-primary);
-        }
-
-        /* Verdict cell */
-        .cell-verdict {
-            color: var(--text-secondary);
-            max-width: 300px;
-            line-height: 1.5;
-            font-size: 0.82rem;
-        }
-
-        /* Raw log: expandable */
-        .cell-log {
-            position: relative;
-        }
-
+        .cell-ip { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); }
+        .cell-time { font-family: var(--font-mono); color: var(--text-muted); font-size: 0.75rem; }
+        
         .log-preview {
-            font-family: var(--font-mono);
-            font-size: 0.75rem;
-            background: rgba(0, 0, 0, 0.3);
-            color: var(--text-muted);
-            padding: 6px 10px;
-            border-radius: 6px;
-            border: 1px solid var(--border-subtle);
-            max-width: 280px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            cursor: pointer;
-            transition: all 0.2s;
-            display: block;
+            font-family: var(--font-mono); font-size: 0.72rem;
+            background: rgba(0, 0, 0, 0.4); color: var(--text-muted);
+            padding: 6px 8px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.05);
+            display: block; cursor: pointer; transition: all 0.2s;
         }
+        .log-preview:hover { border-color: var(--border-medium); color: var(--text-primary); }
+        .log-preview.collapsed { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .log-preview.expanded { white-space: pre-wrap; word-break: break-all; }
 
-        .log-preview:hover {
-            color: var(--text-primary);
-            border-color: var(--border-medium);
-            background: rgba(0, 0, 0, 0.5);
-        }
-
-        .log-preview.expanded {
-            white-space: pre-wrap;
-            word-break: break-all;
-            max-width: 500px;
-        }
-
-        /* Action cell */
-        .action-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 5px 10px;
-            border-radius: 6px;
-            font-family: var(--font-mono);
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .action-badge.blocked {
-            background: rgba(239, 68, 68, 0.1);
-            color: var(--accent-red);
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-
-        .action-badge.reverted {
-            background: rgba(255, 255, 255, 0.04);
-            color: var(--text-muted);
-            border: 1px solid var(--border-subtle);
-            text-decoration: line-through;
-        }
-
-        .action-badge.monitoring {
-            color: var(--text-muted);
-            font-style: italic;
-            background: none;
-            border: none;
-            padding: 0;
-        }
-
-        .revert-btn {
-            background: rgba(255, 255, 255, 0.04);
-            border: 1px solid var(--border-subtle);
-            color: var(--text-muted);
-            cursor: pointer;
-            width: 28px;
-            height: 28px;
-            border-radius: 6px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-
-        .revert-btn:hover {
-            background: rgba(34, 197, 94, 0.1);
-            color: var(--accent-green);
-            border-color: rgba(34, 197, 94, 0.3);
-        }
-
-        .action-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Timestamp cell */
-        .cell-time {
-            font-family: var(--font-mono);
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            white-space: nowrap;
-        }
-
-        /* ============================================================
-           FOOTER
-           ============================================================ */
-        .app-footer {
-            padding: 16px 28px;
-            border-top: 1px solid var(--border-subtle);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-size: 0.72rem;
-            color: var(--text-muted);
-        }
-
-        .footer-brand {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .footer-brand span { color: var(--accent-blue); font-weight: 600; }
-
-        /* ============================================================
-           ANIMATIONS
-           ============================================================ */
-        @keyframes pulse-dot {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .fade-in {
-            animation: fadeIn 0.4s ease forwards;
-        }
-
-        /* ============================================================
-           RESPONSIVE
-           ============================================================ */
-        @media (max-width: 1200px) {
-            .kpi-grid { grid-template-columns: repeat(3, 1fr); }
-            .analytics-row { grid-template-columns: 1fr; }
-        }
-
-        @media (max-width: 768px) {
-            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-            .navbar { padding: 0 16px; }
-            .container { padding: 0 16px; }
-            .nav-brand h1 span { display: none; }
-            .mqtt-indicator { display: none; }
-        }
-
-        @media (max-width: 480px) {
-            .kpi-grid { grid-template-columns: 1fr; }
-        /* ============================================================
-           MODAL GLASSMORPHISM
-           ============================================================ */
-        .command-modal-overlay {
+        /* --- MODAL HITL --- */
+        .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 15, 25, 0.7); backdrop-filter: blur(8px);
+            background: rgba(6, 9, 19, 0.8); backdrop-filter: blur(8px);
             z-index: 9999; display: none; align-items: center; justify-content: center;
             opacity: 0; transition: opacity 0.3s ease;
         }
-        .command-modal-overlay.active { display: flex; opacity: 1; }
-        .command-modal {
-            background: var(--bg-card); border: 1px solid var(--border-subtle);
-            border-radius: 12px; padding: 25px; width: 90%; max-width: 600px;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); transform: translateY(20px);
-            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        .modal-overlay.active { display: flex; opacity: 1; }
+        .modal-content {
+            background: var(--bg-sidebar); border: 1px solid var(--border-glow);
+            border-radius: var(--radius-md); padding: 24px; width: 90%; max-width: 600px;
+            box-shadow: var(--glow-blue); transform: scale(0.95); transition: transform 0.3s;
         }
-        .command-modal-overlay.active .command-modal { transform: translateY(0); }
-        .command-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .command-modal-title { font-size: 1.1rem; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px;}
-        .command-modal-close { cursor: pointer; color: var(--text-muted); background: none; border: none; font-size: 1.5rem; transition: color 0.15s ease; padding: 0;}
-        .command-modal-close:hover { color: var(--text-primary); }
-        .command-code-block {
-            background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.05);
-            border-radius: 8px; padding: 15px; font-family: var(--font-mono); font-size: 0.85rem;
-            color: var(--accent-blue); overflow-x: auto; margin-bottom: 15px; position: relative;
-        }
-        .command-code-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;}
-        .command-json-payload { color: var(--text-secondary); white-space: pre-wrap; font-size: 0.8rem; }
+        .modal-overlay.active .modal-content { transform: scale(1); }
+        
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;}
+        .modal-title { font-size: 1.1rem; font-weight: 600; color: var(--accent-red); display: flex; align-items: center; gap: 8px;}
+        
+        .code-block { background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 12px; font-family: var(--font-mono); font-size: 0.85rem; color: var(--accent-cyan); width: 100%; margin-bottom: 16px; }
+        .modal-btn { padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; border: none; }
+        .btn-approve { background: var(--accent-green); color: #000; }
+        .btn-reject { background: transparent; border: 1px solid var(--accent-red); color: var(--accent-red); }
 
+        @media (max-width: 1200px) {
+            .middle-row { grid-template-columns: 1fr; }
+            .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+        }
     </style>
 </head>
-
 <body>
-    <div class="app-wrapper">
 
-        <!-- ==================== NAVBAR ==================== -->
-        <nav class="navbar">
-            <div class="nav-brand">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent-blue)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-                </svg>
-                <h1>Sentinel-IT <span>SOC Dashboard</span></h1>
-            </div>
-            <div class="nav-right">
-                <div class="mqtt-indicator" id="mqtt-indicator">
-                    <span class="dot {{ 'on' if mqtt_status == 'connected' else 'off' }}" id="mqtt-dot"></span>
-                    MQTT <span id="mqtt-label">{{ mqtt_status|upper }}</span>
-                </div>
-                <div class="status-pill online" id="agent-status">
-                    <span class="status-dot"></span>
-                    AI Agent Active
-                </div>
-            </div>
-        </nav>
-
-        <!-- ==================== MAIN ==================== -->
-        <main class="main-content">
-            <div class="container">
-
-                <!-- KPI Cards -->
-                <div class="kpi-grid" id="kpi-grid">
-                    <div class="kpi-card kpi-total fade-in">
-                        <div class="kpi-label">Total Events</div>
-                        <div class="kpi-value" id="kpi-total">{{ total_logs|default(0, true) }}</div>
-                        <div class="kpi-sub">Logs analysed by AI agent</div>
-                    </div>
-                    <div class="kpi-card kpi-critical fade-in" style="animation-delay: 0.05s">
-                        <div class="kpi-label">Critical Alerts</div>
-                        <div class="kpi-value" id="kpi-critical">{{ total_criticals|default(0, true) }}</div>
-                        <div class="kpi-sub">Require immediate attention</div>
-                    </div>
-                    <div class="kpi-card kpi-blocked fade-in" style="animation-delay: 0.1s">
-                        <div class="kpi-label">IPs Blocked</div>
-                        <div class="kpi-value" id="kpi-blocked">{{ total_blocks|default(0, true) }}</div>
-                        <div class="kpi-sub">Automated firewall actions</div>
-                    </div>
-                    <div class="kpi-card kpi-vectors fade-in" style="animation-delay: 0.15s">
-                        <div class="kpi-label">Attack Vectors</div>
-                        <div class="kpi-value" id="kpi-vectors">{{ unique_vectors|default(0, true) }}</div>
-                        <div class="kpi-sub">Unique protocols targeted</div>
-                    </div>
-                    <div class="kpi-card kpi-threat fade-in" style="animation-delay: 0.2s">
-                        <div class="kpi-label">Threat Level</div>
-                        <div class="threat-gauge">
-                            <div class="gauge-ring">
-                                <svg width="56" height="56" viewBox="0 0 56 56">
-                                    <circle class="gauge-bg" cx="28" cy="28" r="22"></circle>
-                                    <circle class="gauge-fill" id="gauge-fill" cx="28" cy="28" r="22"
-                                        stroke-dasharray="138.23"
-                                        stroke-dashoffset="{{ 138.23 - (138.23 * (threat_level|default(0, true)) / 100) }}">
-                                    </circle>
-                                </svg>
-                                <span class="gauge-text" id="gauge-text">{{ threat_level|default(0, true) }}%</span>
-                            </div>
-                            <div>
-                                <div class="threat-label" id="threat-label" style="color: {% if threat_level|default(0) >= 75 %}var(--sev-critical){% elif threat_level|default(0) >= 50 %}var(--sev-high){% elif threat_level|default(0) >= 25 %}var(--sev-medium){% else %}var(--sev-low){% endif %}">
-                                    {% if threat_level|default(0) >= 75 %}CRITICAL{% elif threat_level|default(0) >= 50 %}HIGH{% elif threat_level|default(0) >= 25 %}MODERATE{% else %}LOW{% endif %}
-                                </div>
-                                <div class="kpi-sub" id="kpi-last-seen">{{ last_seen|default('-', true) }}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Analytics Row -->
-                <div class="analytics-row">
-
-                    <!-- Vector Distribution -->
-                    <div class="panel fade-in" style="animation-delay: 0.25s">
-                        <div class="panel-title">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>
-                            Attack Vector Distribution
-                        </div>
-                        <div class="vector-bar-list" id="vector-bars">
-                            {% if vector_stats and vector_stats|length > 0 %}
-                                {% for v in vector_stats %}
-                                <div class="vector-bar-item">
-                                    <span class="vector-bar-label">{{ v.name }}</span>
-                                    <div class="vector-bar-track">
-                                        <div class="vector-bar-fill" style="width: {{ v.percentage }}%"></div>
-                                    </div>
-                                    <span class="vector-bar-pct">{{ v.percentage }}%</span>
-                                </div>
-                                {% endfor %}
-                            {% else %}
-                                <div class="empty-state">Awaiting data — no attack vectors recorded yet</div>
-                            {% endif %}
-                        </div>
-                    </div>
-
-                    <!-- Recent Activity -->
-                    <div class="panel fade-in" style="animation-delay: 0.3s">
-                        <div class="panel-title">
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-                            Recent Activity
-                        </div>
-                        <div class="activity-list" id="activity-list">
-                            {% if data and data|length > 0 %}
-                                {% for row in data[:5] %}
-                                <div class="activity-item">
-                                    {% set sev = row[5]|default('')|lower %}
-                                    <div class="activity-icon {% if 'critica' in sev or 'crítica' in sev %}sev-critical{% elif 'alta' in sev or 'high' in sev %}sev-high{% elif 'media' in sev or 'medium' in sev %}sev-medium{% else %}sev-low{% endif %}">
-                                        {% if 'critica' in sev or 'crítica' in sev %}!!{% elif 'alta' in sev or 'high' in sev %}!{% else %}i{% endif %}
-                                    </div>
-                                    <div class="activity-body">
-                                        <div class="activity-title">{{ row[1]|default('Unknown') }} — {{ row[2]|default('N/A') }}</div>
-                                        <div class="activity-meta">{{ row[4]|default('-') }} · {{ row[8]|default('') }}</div>
-                                    </div>
-                                </div>
-                                {% endfor %}
-                            {% else %}
-                                <div class="empty-state">No recent activity — AI agent is listening</div>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Threat Feed Table -->
-                <div class="feed-section fade-in" style="animation-delay: 0.35s">
-                    <div class="feed-header">
-                        <h2>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                            Live Threat Feed
-                        </h2>
-                        <span class="feed-count" id="feed-count">{{ data|length|default(0, true) }} events</span>
-                    </div>
-                    <div class="table-responsive">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Timestamp</th>
-                                    <th>Target & Vector</th>
-                                    <th>Severity</th>
-                                    <th>Source IP</th>
-                                    <th>AI Verdict</th>
-                                    <th>Raw Log</th>
-                                    <th>Action History</th>
-                                    <th>Pi4 Feedback</th>
-                                </tr>
-                            </thead>
-                            <tbody id="feed-body">
-                                {% for row in data %}
-                                <tr>
-                                    <td class="cell-time">{{ row[8] }}</td>
-                                    <td>
-                                        <div class="cell-node">
-                                            <span class="cell-node-name">{{ row[1] }}</span>
-                                            <span class="cell-node-vector">{{ row[2] }}</span>
-                                        </div>
-                                    </td>
-                                    <td>
-                                        {% set severity = row[5]|default('')|lower %}
-                                        {% if "critica" in severity or "crítica" in severity or "critical" in severity %}
-                                        <span class="sev-badge critical">{{ row[5] }}</span>
-                                        {% elif "alta" in severity or "high" in severity %}
-                                        <span class="sev-badge high">{{ row[5] }}</span>
-                                        {% elif "media" in severity or "medium" in severity %}
-                                        <span class="sev-badge medium">{{ row[5] }}</span>
-                                        {% elif "baja" in severity or "low" in severity %}
-                                        <span class="sev-badge low">{{ row[5] }}</span>
-                                        {% else %}
-                                        <span class="sev-badge none">{{ row[5] }}</span>
-                                        {% endif %}
-                                    </td>
-                                    <td class="cell-ip">{{ row[4] }}</td>
-                                    <td class="cell-verdict">{{ row[6] }}</td>
-                                    <td class="cell-log">
-                                        <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[3] }}</span>
-                                    </td>
-                                    <td class="cell-log">
-                                        <div class="action-group" style="align-items: flex-start; flex-direction: column;">
-                                            <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[7] }}</span>
-                                            {% if row[9] == 'PENDING' %}
-                                            <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="margin-top: 5px; background: var(--sev-high); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold; animation: pulse-dot 2s infinite;">Revisar Mitigación</button>
-                                            {% elif "bloque" in row[7]|lower and "revertido" not in row[7]|lower %}
-                                            <form action="/revert/{{ row[0] }}" method="POST" style="margin-top: 5px;">
-                                                <button type="submit" class="revert-btn" title="Revert block">
-                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                                                        <path d="M3 3v5h5"></path>
-                                                    </svg>
-                                                </button>
-                                            </form>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-                                    <td class="cell-log">
-                                        {% if row[8] %}
-                                        <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[8] }}</span>
-                                        {% else %}
-                                        <span class="action-badge monitoring">Waiting...</span>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-
-                                {% if not data or data|length == 0 %}
-                                <tr>
-                                    <td class="cell-time">—</td>
-                                    <td><div class="cell-node"><span class="cell-node-name">System</span><span class="cell-node-vector">STANDBY</span></div></td>
-                                    <td><span class="sev-badge none">STANDBY</span></td>
-                                    <td class="cell-ip">—</td>
-                                    <td class="cell-verdict" style="color: var(--text-muted); font-style: italic;">Awaiting logs from AWS IoT Core. AI Agent is listening...</td>
-                                    <td><span class="log-preview">mqtt/topic/# ...</span></td>
-                                    <td><span class="action-badge monitoring">Monitoring</span></td>
-                                </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </div>
-        </main>
-
-        <!-- ==================== FOOTER ==================== -->
-        <footer class="app-footer">
-            <div class="footer-brand">
-                Powered by <span>Google Gemini ADK</span>
-            </div>
-            <div>Sentinel-IT SOC Coordinator · TFG 2026</div>
-        </footer>
-
-    </div>
-
-    <!-- ==================== COMMAND MODAL ==================== -->
-    <div class="command-modal-overlay" id="commandModal" onclick="closeCommandModal()">
-        <div class="command-modal" onclick="event.stopPropagation()">
-            <div class="command-modal-header">
-                <div class="command-modal-title">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sev-high)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                    Aprobación de Mitigación (HITL)
-                </div>
-                <button class="command-modal-close" onclick="closeCommandModal()">&times;</button>
-            </div>
-            
-            <input type="hidden" id="modalLogId">
-
-            <div class="command-code-label">Dispositivo Destino</div>
-            <div class="command-json-payload" id="modalPlatform" style="margin-bottom: 15px; font-weight: bold; color: var(--text-primary);"></div>
-
-            <div class="command-code-label">Justificación de la IA</div>
-            <div class="command-json-payload" id="modalRationale" style="margin-bottom: 15px; color: var(--text-secondary);"></div>
-            
-            <div class="command-code-label">Comando Bash Propuesto (Editable)</div>
-            <textarea id="modalRawCommand" class="command-code-block" style="width: 100%; resize: vertical; min-height: 80px;"></textarea>
-            
-            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
-                <button onclick="submitMitigation('reject')" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red); color: var(--accent-red); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">Rechazar</button>
-                <button onclick="submitMitigation('approve')" style="background: var(--accent-green); border: none; color: #000; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">Ejecutar Comando</button>
+<div class="app-layout">
+    
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+        <div class="brand">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <div class="brand-text">
+                <h1>SENTINEL·IT</h1>
+                <span>SOC Dashboard</span>
             </div>
         </div>
+
+        <div class="agent-status-box">
+            <div class="sonar-wrapper">
+                <div class="sonar-core"></div>
+                <div class="sonar-ring"></div>
+                <div class="sonar-ring" style="animation-delay: 1s;"></div>
+            </div>
+            <div class="agent-label">IA AGENT ACTIVE</div>
+        </div>
+
+        <div class="sys-info">
+            <div class="sys-info-item">
+                <span>MQTT Broker</span>
+                <span class="sys-info-val" style="color: var(--accent-green);">{{ mqtt_status|upper }}</span>
+            </div>
+            <div class="sys-info-item">
+                <span>Coordinator</span>
+                <span class="sys-info-val">PI-5 SERVER</span>
+            </div>
+        </div>
+
+        <nav class="nav-menu">
+            <a href="#" class="nav-link active">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                Dashboard
+            </a>
+            <a href="#" class="nav-link">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                Threats
+            </a>
+            <a href="#" class="nav-link">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                Blocked IPs
+            </a>
+        </nav>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content">
+        
+        <header class="topbar">
+            <div class="search-bar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" placeholder="Buscar IP, hash, dominio...">
+            </div>
+            <div class="top-right">
+                <div class="time-filters">
+                    <button class="filter-btn active">LIVE</button>
+                    <button class="filter-btn">1H</button>
+                    <button class="filter-btn">24H</button>
+                </div>
+                <div style="color: var(--text-secondary); font-size: 0.85rem; display: flex; align-items: center; gap: 8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                    SOC Admin
+                </div>
+            </div>
+        </header>
+
+        <div class="content-wrapper">
+            
+            <!-- KPIs -->
+            <div class="kpi-grid">
+                <div class="panel kpi-card kpi-total">
+                    <div class="kpi-header">
+                        <span class="panel-title">Eventos Totales</span>
+                    </div>
+                    <div class="kpi-val" id="kpi-total">{{ total_logs|default(0, true) }}</div>
+                </div>
+                <div class="panel kpi-card kpi-crit">
+                    <div class="kpi-header">
+                        <span class="panel-title" style="color: var(--accent-red);">Eventos Críticos</span>
+                    </div>
+                    <div class="kpi-val" id="kpi-critical">{{ total_criticals|default(0, true) }}</div>
+                </div>
+                <div class="panel kpi-card kpi-block">
+                    <div class="kpi-header">
+                        <span class="panel-title" style="color: var(--accent-green);">IP Bloqueadas</span>
+                    </div>
+                    <div class="kpi-val" id="kpi-blocked">{{ total_blocks|default(0, true) }}</div>
+                </div>
+                <div class="panel kpi-card" style="display: flex; flex-direction: row; align-items: center; justify-content: space-between;">
+                    <div>
+                        <span class="panel-title" style="color: var(--accent-orange);">Nivel de Amenaza</span>
+                        <div class="kpi-val" id="threat-val" style="color: var(--accent-orange);">{{ threat_level|default(0, true) }}</div>
+                    </div>
+                    <div id="gaugeChart" style="width: 80px; height: 80px;"></div>
+                </div>
+            </div>
+
+            <!-- MIDDLE ROW -->
+            <div class="middle-row">
+                <div class="panel">
+                    <div class="panel-title">Mapa de Amenazas en Tiempo Real</div>
+                    <div id="mapChart" class="chart-container"></div>
+                </div>
+                <div class="panel">
+                    <div class="panel-title">Distribución de Vectores</div>
+                    <div id="radarChart" class="chart-container"></div>
+                </div>
+            </div>
+
+            <!-- TABLE FEED -->
+            <div class="panel feed-section">
+                <div class="panel-title" style="margin-bottom: 12px; display: flex; justify-content: space-between; width: 100%;">
+                    <span>Live Threat Feed</span>
+                    <span id="feed-count" style="color: var(--text-muted); font-size: 0.7rem;">{{ data|length|default(0, true) }} eventos</span>
+                </div>
+                <div class="table-responsive">
+                    <table>
+                        <colgroup>
+                            <col class="col-time">
+                            <col class="col-sev">
+                            <col class="col-ip">
+                            <col class="col-target">
+                            <col class="col-verdict">
+                            <col class="col-log">
+                            <col class="col-action">
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>Tiempo</th>
+                                <th>Severidad</th>
+                                <th>Origen (IP)</th>
+                                <th>Objetivo & Vector</th>
+                                <th>Veredicto IA</th>
+                                <th>Detalle Log</th>
+                                <th>Acción / Feedback</th>
+                            </tr>
+                        </thead>
+                        <tbody id="feed-body">
+                            {% for row in data %}
+                            <tr>
+                                <td class="cell-time">{{ row[8] }}</td>
+                                <td>
+                                    {% set severity = row[5]|default('')|lower %}
+                                    {% if "critica" in severity or "crítica" in severity or "critical" in severity %}
+                                    <span class="sev-badge critical">{{ row[5] }}</span>
+                                    {% elif "alta" in severity or "high" in severity %}
+                                    <span class="sev-badge high">{{ row[5] }}</span>
+                                    {% elif "media" in severity or "medium" in severity %}
+                                    <span class="sev-badge medium">{{ row[5] }}</span>
+                                    {% else %}
+                                    <span class="sev-badge low">{{ row[5] }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="cell-ip">{{ row[4] }}</td>
+                                <td>
+                                    <div style="font-weight: 600; color: var(--text-primary);">{{ row[1] }}</div>
+                                    <div style="font-size: 0.7rem; color: var(--accent-blue); font-family: var(--font-mono);">{{ row[2] }}</div>
+                                </td>
+                                <td>{{ row[6] }}</td>
+                                <td>
+                                    <span class="log-preview collapsed" onclick="this.classList.toggle('collapsed'); this.classList.toggle('expanded')" title="Click to expand">{{ row[3] }}</span>
+                                </td>
+                                <td>
+                                    <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start;">
+                                        <span class="log-preview collapsed" onclick="this.classList.toggle('collapsed'); this.classList.toggle('expanded')">{{ row[7] }}</span>
+                                        {% if row[9] == 'PENDING' %}
+                                        <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>
+                                        {% endif %}
+                                        {% if row[8] %}
+                                        <span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: {{ row[8] }}</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                            {% if not data or data|length == 0 %}
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 40px; font-style: italic; color: var(--text-muted);">
+                                    AI Agent is listening... Awaiting logs from MQTT.
+                                </td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</div>
+
+<!-- MODAL HITL -->
+<div class="modal-overlay" id="commandModal" onclick="closeCommandModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div class="modal-title">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                Aprobación de Mitigación (HITL)
+            </div>
+            <button onclick="closeCommandModal()" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        
+        <input type="hidden" id="modalLogId">
+        
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Dispositivo Destino</div>
+            <div id="modalPlatform" style="font-family: var(--font-mono); color: var(--text-primary); font-weight: 600;"></div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Justificación de la IA</div>
+            <div id="modalRationale" style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5;"></div>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Comando Bash Propuesto (Editable)</div>
+            <textarea id="modalRawCommand" class="code-block" rows="3"></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px;">
+            <button class="modal-btn btn-reject" onclick="submitMitigation('reject')">Rechazar</button>
+            <button class="modal-btn btn-approve" onclick="submitMitigation('approve')">Aprobar y Ejecutar</button>
+        </div>
     </div>
+</div>
 
-    <!-- ============================================================
-         JAVASCRIPT: AJAX Auto-Refresh & Interactions
-         ============================================================ -->
-    <script>
-        // Auto-refresh every 5 seconds via AJAX (no page flicker)
-        const REFRESH_INTERVAL = 5000;
+<script>
+    // --- ECHARTS INITIALIZATION ---
+    let threatLevel = {{ threat_level|default(0, true) }};
+    
+    // 1. Gauge Chart
+    var gaugeDom = document.getElementById('gaugeChart');
+    var gaugeChart = echarts.init(gaugeDom, 'dark');
+    var gaugeOption = {
+        backgroundColor: 'transparent',
+        series: [{
+            type: 'gauge',
+            startAngle: 180, endAngle: 0,
+            min: 0, max: 100,
+            splitNumber: 4,
+            itemStyle: {
+                color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                    { offset: 0, color: '#10b981' },
+                    { offset: 0.5, color: '#f59e0b' },
+                    { offset: 1, color: '#ef4444' }
+                ])
+            },
+            progress: { show: true, width: 8 },
+            pointer: { show: false },
+            axisLine: { lineStyle: { width: 8, color: [[1, 'rgba(255,255,255,0.05)']] } },
+            axisTick: { show: false },
+            splitLine: { show: false },
+            axisLabel: { show: false },
+            detail: { show: false },
+            data: [{ value: threatLevel }]
+        }]
+    };
+    gaugeChart.setOption(gaugeOption);
 
-        function getSeverityClass(sev) {
-            if (!sev) return 'none';
-            const s = sev.toLowerCase();
-            if (s.includes('critica') || s.includes('crítica') || s.includes('critical')) return 'critical';
-            if (s.includes('alta') || s.includes('high')) return 'high';
-            if (s.includes('media') || s.includes('medium')) return 'medium';
-            if (s.includes('baja') || s.includes('low')) return 'low';
-            return 'none';
-        }
+    // 2. Radar Chart (Mock initial data, will update via AJAX if endpoint supports it, else static for now to look good)
+    var radarDom = document.getElementById('radarChart');
+    var radarChart = echarts.init(radarDom, 'dark');
+    var vectorData = [];
+    {% if vector_stats and vector_stats|length > 0 %}
+        {% for v in vector_stats %}
+            vectorData.push({name: '{{ v.name }}', value: {{ v.percentage }}});
+        {% endfor %}
+    {% else %}
+        vectorData = [
+            {name: 'Brute Force', value: 45}, {name: 'SQL Injection', value: 30},
+            {name: 'XSS', value: 15}, {name: 'DDoS', value: 10}
+        ];
+    {% endif %}
+    
+    var radarOption = {
+        backgroundColor: 'transparent',
+        radar: {
+            indicator: vectorData.map(v => ({name: v.name, max: 100})),
+            shape: 'polygon',
+            splitNumber: 4,
+            axisName: { color: '#94a3b8' },
+            splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+            splitArea: { show: false },
+            axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+        },
+        series: [{
+            type: 'radar',
+            data: [{ value: vectorData.map(v => v.value), name: 'Vectors' }],
+            symbol: 'circle',
+            symbolSize: 6,
+            itemStyle: { color: '#3b82f6' },
+            areaStyle: { color: 'rgba(59, 130, 246, 0.2)' },
+            lineStyle: { color: '#3b82f6', width: 2 }
+        }]
+    };
+    radarChart.setOption(radarOption);
 
-        function getActivityIcon(sev) {
-            const cls = getSeverityClass(sev);
-            if (cls === 'critical') return { cls: 'sev-critical', text: '!!' };
-            if (cls === 'high') return { cls: 'sev-high', text: '!' };
-            if (cls === 'medium') return { cls: 'sev-medium', text: 'i' };
-            return { cls: 'sev-low', text: 'i' };
-        }
+    // 3. Map Chart (World map placeholder using scatter on a geo-like grid, true maps require geoJSON)
+    var mapDom = document.getElementById('mapChart');
+    var mapChart = echarts.init(mapDom, 'dark');
+    var mapOption = {
+        backgroundColor: 'transparent',
+        grid: { top: 20, bottom: 20, left: 20, right: 20 },
+        xAxis: { show: false, min: -180, max: 180 },
+        yAxis: { show: false, min: -90, max: 90 },
+        series: [{
+            type: 'effectScatter',
+            coordinateSystem: 'cartesian2d',
+            data: [
+                [-100, 40], [10, 50], [100, 30], [-50, -20]
+            ],
+            symbolSize: 10,
+            itemStyle: { color: '#ef4444', shadowBlur: 10, shadowColor: '#ef4444' },
+            rippleEffect: { brushType: 'stroke', scale: 4 }
+        }, {
+            type: 'lines',
+            coordinateSystem: 'cartesian2d',
+            effect: { show: true, period: 3, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 },
+            lineStyle: { color: '#f59e0b', width: 1, opacity: 0.4, curveness: 0.3 },
+            data: [
+                {coords: [[-100, 40], [-3, 40]]},
+                {coords: [[100, 30], [-3, 40]]},
+                {coords: [[-50, -20], [-3, 40]]}
+            ]
+        }]
+    };
+    mapChart.setOption(mapOption);
 
-        function getThreatColor(level) {
-            if (level >= 75) return 'var(--sev-critical)';
-            if (level >= 50) return 'var(--sev-high)';
-            if (level >= 25) return 'var(--sev-medium)';
-            return 'var(--sev-low)';
-        }
+    window.addEventListener('resize', function() {
+        gaugeChart.resize(); radarChart.resize(); mapChart.resize();
+    });
 
-        function getThreatLabel(level) {
-            if (level >= 75) return 'CRITICAL';
-            if (level >= 50) return 'HIGH';
-            if (level >= 25) return 'MODERATE';
-            return 'LOW';
-        }
+    // --- UTILS & AJAX ---
+    function getSeverityClass(sev) {
+        if (!sev) return 'low';
+        const s = sev.toLowerCase();
+        if (s.includes('critica') || s.includes('crítica') || s.includes('critical')) return 'critical';
+        if (s.includes('alta') || s.includes('high')) return 'high';
+        if (s.includes('media') || s.includes('medium')) return 'medium';
+        return 'low';
+    }
 
-        function isActionBlocked(action) {
-            if (!action) return false;
-            const a = action.toLowerCase();
-            return (a.includes('bloque') || a.includes('block')) && !a.includes('revertido');
-        }
+    function escapeHtml(text) {
+        const div = document.createElement('div'); div.textContent = text || ''; return div.innerHTML;
+    }
 
-        function isActionReverted(action) {
-            if (!action) return false;
-            return action.toLowerCase().includes('revertido');
-        }
+    function showCommandModal(logId, device, command, rationale) {
+        document.getElementById('modalLogId').value = logId;
+        document.getElementById('modalPlatform').textContent = device;
+        document.getElementById('modalRawCommand').value = command;
+        document.getElementById('modalRationale').textContent = rationale;
+        document.getElementById('commandModal').classList.add('active');
+    }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text || '';
-            return div.innerHTML;
-        }
+    function closeCommandModal() {
+        document.getElementById('commandModal').classList.remove('active');
+    }
 
-        function showCommandModal(logId, device, command, rationale) {
-            const modal = document.getElementById('commandModal');
-            document.getElementById('modalLogId').value = logId;
-            document.getElementById('modalPlatform').textContent = device;
-            document.getElementById('modalRawCommand').value = command;
-            document.getElementById('modalRationale').textContent = rationale;
+    async function submitMitigation(action) {
+        const logId = document.getElementById('modalLogId').value;
+        const finalCommand = document.getElementById('modalRawCommand').value;
+        try {
+            const res = await fetch('/api/mitigate/approve', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ log_id: logId, action: action, final_command: finalCommand })
+            });
+            const data = await res.json();
+            if(data.status === 'success') { closeCommandModal(); refreshDashboard(); }
+            else { alert("Error: " + data.message); }
+        } catch(err) { alert("Error de red al procesar la mitigación."); }
+    }
+
+    async function refreshDashboard() {
+        try {
+            const res = await fetch('/api/data');
+            if (!res.ok) return;
+            const d = await res.json();
+
+            // Update KPIs
+            document.getElementById('kpi-total').textContent = d.total_logs;
+            document.getElementById('kpi-critical').textContent = d.total_criticals;
+            document.getElementById('kpi-blocked').textContent = d.total_blocks;
+            document.getElementById('threat-val').textContent = d.threat_level;
             
-            modal.classList.add('active');
-        }
+            // Update Gauge
+            gaugeChart.setOption({ series: [{ data: [{value: d.threat_level}] }] });
 
-        async function submitMitigation(action) {
-            const logId = document.getElementById('modalLogId').value;
-            const finalCommand = document.getElementById('modalRawCommand').value;
+            // Update Radar if vector_stats exists
+            if (d.vector_stats && d.vector_stats.length > 0) {
+                const indicators = d.vector_stats.map(v => ({name: v.name, max: 100}));
+                const values = d.vector_stats.map(v => v.percentage);
+                radarChart.setOption({ radar: { indicator: indicators }, series: [{ data: [{value: values, name: 'Vectors'}] }] });
+            }
+
+            // Update Table
+            const tbody = document.getElementById('feed-body');
+            document.getElementById('feed-count').textContent = d.logs.length + ' eventos';
             
-            try {
-                const res = await fetch('/api/mitigate/approve', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        log_id: logId,
-                        action: action,
-                        final_command: finalCommand
-                    })
-                });
-                const data = await res.json();
-                if(data.status === 'success') {
-                    closeCommandModal();
-                    refreshDashboard();
-                } else {
-                    alert("Error: " + data.message);
-                }
-            } catch(err) {
-                alert("Error de red al procesar la mitigacion.");
+            if (d.logs && d.logs.length > 0) {
+                tbody.innerHTML = d.logs.map(log => {
+                    const sevClass = getSeverityClass(log.severity);
+                    let actionHtml = `<div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-start;">
+                        <span class="log-preview collapsed" onclick="this.classList.toggle('collapsed'); this.classList.toggle('expanded')">${escapeHtml(log.action)}</span>`;
+                    
+                    if (log.status === 'PENDING') {
+                        actionHtml += `<button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}', '${escapeHtml(log.rationale).replace(/'/g, "\\'")}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>`;
+                    }
+                    if (log.mitigation_status) {
+                        actionHtml += `<span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: ${escapeHtml(log.mitigation_status)}</span>`;
+                    }
+                    actionHtml += `</div>`;
+
+                    return `<tr>
+                        <td class="cell-time">${escapeHtml(log.timestamp)}</td>
+                        <td><span class="sev-badge ${sevClass}">${escapeHtml(log.severity)}</span></td>
+                        <td class="cell-ip">${escapeHtml(log.source_ip)}</td>
+                        <td>
+                            <div style="font-weight: 600; color: var(--text-primary);">${escapeHtml(log.device)}</div>
+                            <div style="font-size: 0.7rem; color: var(--accent-blue); font-family: var(--font-mono);">${escapeHtml(log.service)}</div>
+                        </td>
+                        <td>${escapeHtml(log.verdict)}</td>
+                        <td><span class="log-preview collapsed" onclick="this.classList.toggle('collapsed'); this.classList.toggle('expanded')">${escapeHtml(log.raw_log)}</span></td>
+                        <td>${actionHtml}</td>
+                    </tr>`;
+                }).join('');
             }
-        }
 
-        function closeCommandModal() {
-            document.getElementById('commandModal').classList.remove('active');
-        }
+        } catch (err) { console.error('Refresh error:', err); }
+    }
 
-        async function refreshDashboard() {
-            try {
-                const res = await fetch('/api/data');
-                if (!res.ok) return;
-                const d = await res.json();
-
-                // KPIs
-                document.getElementById('kpi-total').textContent = d.total_logs;
-                document.getElementById('kpi-critical').textContent = d.total_criticals;
-                document.getElementById('kpi-blocked').textContent = d.total_blocks;
-                document.getElementById('kpi-vectors').textContent = d.unique_vectors;
-                document.getElementById('kpi-last-seen').textContent = d.last_seen;
-
-                // Threat gauge
-                const circumference = 138.23;
-                const offset = circumference - (circumference * d.threat_level / 100);
-                const gaugeFill = document.getElementById('gauge-fill');
-                const gaugeText = document.getElementById('gauge-text');
-                const threatLabel = document.getElementById('threat-label');
-                gaugeFill.style.strokeDashoffset = offset;
-                gaugeFill.style.stroke = getThreatColor(d.threat_level);
-                gaugeText.textContent = d.threat_level + '%';
-                gaugeText.style.color = getThreatColor(d.threat_level);
-                threatLabel.textContent = getThreatLabel(d.threat_level);
-                threatLabel.style.color = getThreatColor(d.threat_level);
-
-                // MQTT status
-                const mqttDot = document.getElementById('mqtt-dot');
-                const mqttLabel = document.getElementById('mqtt-label');
-                mqttDot.className = 'dot ' + (d.mqtt_status === 'connected' ? 'on' : 'off');
-                mqttLabel.textContent = d.mqtt_status.toUpperCase();
-
-                // Vector bars
-                const vectorContainer = document.getElementById('vector-bars');
-                if (d.vector_stats && d.vector_stats.length > 0) {
-                    vectorContainer.innerHTML = d.vector_stats.map(v =>
-                        `<div class="vector-bar-item">
-                            <span class="vector-bar-label">${escapeHtml(v.name)}</span>
-                            <div class="vector-bar-track">
-                                <div class="vector-bar-fill" style="width: ${v.percentage}%"></div>
-                            </div>
-                            <span class="vector-bar-pct">${v.percentage}%</span>
-                        </div>`
-                    ).join('');
-                } else {
-                    vectorContainer.innerHTML = '<div class="empty-state">Awaiting data — no attack vectors recorded yet</div>';
-                }
-
-                // Recent activity
-                const activityContainer = document.getElementById('activity-list');
-                if (d.logs && d.logs.length > 0) {
-                    const recent = d.logs.slice(0, 5);
-                    activityContainer.innerHTML = recent.map(log => {
-                        const icon = getActivityIcon(log.severity);
-                        return `<div class="activity-item">
-                            <div class="activity-icon ${icon.cls}">${icon.text}</div>
-                            <div class="activity-body">
-                                <div class="activity-title">${escapeHtml(log.device)} — ${escapeHtml(log.service)}</div>
-                                <div class="activity-meta">${escapeHtml(log.source_ip)} · ${escapeHtml(log.timestamp)}</div>
-                            </div>
-                        </div>`;
-                    }).join('');
-                } else {
-                    activityContainer.innerHTML = '<div class="empty-state">No recent activity — AI agent is listening</div>';
-                }
-
-                // Feed table
-                const feedBody = document.getElementById('feed-body');
-                const feedCount = document.getElementById('feed-count');
-                feedCount.textContent = d.logs.length + ' events';
-
-                if (d.logs && d.logs.length > 0) {
-                    feedBody.innerHTML = d.logs.map(log => {
-                        const sevClass = getSeverityClass(log.severity);
-                        let actionHtml = `<div class="action-group" style="align-items: flex-start; flex-direction: column;">
-                            <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.action)}</span>`;
-                        
-                        if (log.status === 'PENDING') {
-                            actionHtml += `
-                            <button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}', '${escapeHtml(log.rationale).replace(/'/g, "\\'")}')" style="margin-top: 5px; background: var(--sev-high); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold; animation: pulse-dot 2s infinite;">Revisar Mitigación</button>`;
-                        } else if (isActionBlocked(log.action)) {
-                            actionHtml += `
-                            <form action="/revert/${log.id}" method="POST" style="margin-top: 5px;">
-                                <button type="submit" class="revert-btn" title="Revert block">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
-                                        <path d="M3 3v5h5"></path>
-                                    </svg>
-                                </button>
-                            </form>`;
-                        }
-                        actionHtml += `</div>`;
-
-                        let feedbackHtml = log.mitigation_status ? 
-                            `<span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.mitigation_status)}</span>` : 
-                            `<span class="action-badge monitoring">Waiting...</span>`;
-
-                        return `<tr>
-                            <td class="cell-time">${escapeHtml(log.timestamp)}</td>
-                            <td><div class="cell-node"><span class="cell-node-name">${escapeHtml(log.device)}</span><span class="cell-node-vector">${escapeHtml(log.service)}</span></div></td>
-                            <td><span class="sev-badge ${sevClass}">${escapeHtml(log.severity)}</span></td>
-                            <td class="cell-ip">${escapeHtml(log.source_ip)}</td>
-                            <td class="cell-verdict">${escapeHtml(log.verdict)}</td>
-                            <td class="cell-log"><span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.raw_log)}</span></td>
-                            <td class="cell-log">${actionHtml}</td>
-                            <td class="cell-log">${feedbackHtml}</td>
-                        </tr>`;
-                    }).join('');
-                }
-
-            } catch (err) {
-                console.error('[Dashboard] AJAX refresh failed:', err);
-            }
-        }
-
-        // Start auto-refresh loop
-        setInterval(refreshDashboard, REFRESH_INTERVAL);
-    </script>
+    setInterval(refreshDashboard, 5000);
+</script>
 </body>
-
 </html>
