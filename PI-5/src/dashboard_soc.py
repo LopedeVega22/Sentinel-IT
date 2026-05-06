@@ -235,6 +235,55 @@ def _serialize_logs(data):
         })
     return result
 
+def get_topology_data():
+    """Generates a graph topology of attackers, sensors, and the coordinator from recent logs."""
+    try:
+        conn = _get_connection()
+        c = conn.cursor()
+        c.execute("""
+            SELECT dispositivo, ip_origen, COUNT(*) as weight
+            FROM logs
+            WHERE ip_origen IS NOT NULL AND dispositivo IS NOT NULL
+            GROUP BY dispositivo, ip_origen
+            ORDER BY weight DESC
+            LIMIT 15
+        """)
+        rows = c.fetchall()
+        conn.close()
+
+        nodes = []
+        links = []
+        
+        # Base node: PI-5 Coordinator (Category 0)
+        nodes.append({"id": "PI-5", "name": "PI-5 Coordinator", "category": 0, "symbolSize": 45, "itemStyle": {"color": "#3b82f6", "shadowBlur": 15, "shadowColor": "#3b82f6"}})
+        
+        devices = set()
+        attackers = set()
+        
+        for device, ip, weight in rows:
+            if device not in devices:
+                devices.add(device)
+                nodes.append({"id": device, "name": device, "category": 1, "symbolSize": 30, "itemStyle": {"color": "#10b981", "shadowBlur": 10, "shadowColor": "#10b981"}})
+                # Link device to coordinator
+                links.append({"source": device, "target": "PI-5", "lineStyle": {"width": 2, "color": "rgba(16, 185, 129, 0.4)", "type": "dashed"}})
+            
+            if ip not in attackers:
+                attackers.add(ip)
+                nodes.append({"id": ip, "name": ip, "category": 2, "symbolSize": 20, "itemStyle": {"color": "#ef4444"}})
+            
+            # Link attacker to device
+            links.append({"source": ip, "target": device, "value": weight, "lineStyle": {"width": max(1.5, min(weight/2, 4)), "color": "rgba(239, 68, 68, 0.6)", "curveness": 0.2}})
+            
+        # If no logs, just show coordinator
+        if not rows:
+            nodes.append({"id": "PI-4 (Demo)", "name": "PI-4 Sensor", "category": 1, "symbolSize": 30, "itemStyle": {"color": "#10b981"}})
+            links.append({"source": "PI-4 (Demo)", "target": "PI-5", "lineStyle": {"width": 2, "color": "rgba(16, 185, 129, 0.4)", "type": "dashed"}})
+            
+        return {"nodes": nodes, "links": links}
+    except Exception as e:
+        logger.error(f"[ERROR] Topology query failed: {e}")
+        return {"nodes": [{"id": "PI-5", "name": "PI-5 Coordinator", "category": 0, "symbolSize": 45}], "links": []}
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -285,6 +334,7 @@ def index():
     threat_level = get_threat_level()
     mqtt_status = "connected" if mqtt_client else "disconnected"
     sys_info = get_sys_info()
+    topology_data = get_topology_data()
     
     return render_template('index.html', 
                           data=data, 
@@ -296,7 +346,8 @@ def index():
                           unique_vectors=unique_vectors,
                           threat_level=threat_level,
                           mqtt_status=mqtt_status,
-                          sys_info=sys_info)
+                          sys_info=sys_info,
+                          topology=topology_data)
 
 
 @app.route('/api/data')
@@ -310,6 +361,7 @@ def api_data():
     threat_level = get_threat_level()
     mqtt_status = "connected" if mqtt_client else "disconnected"
     sys_info = get_sys_info()
+    topology_data = get_topology_data()
     
     return jsonify({
         "logs": _serialize_logs(data),
@@ -321,7 +373,8 @@ def api_data():
         "unique_vectors": unique_vectors,
         "threat_level": threat_level,
         "mqtt_status": mqtt_status,
-        "sys_info": sys_info
+        "sys_info": sys_info,
+        "topology": topology_data
     })
 
 

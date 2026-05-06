@@ -436,7 +436,7 @@
             <!-- MIDDLE ROW -->
             <div class="middle-row">
                 <div class="panel">
-                    <div class="panel-title">Mapa de Amenazas en Tiempo Real</div>
+                    <div class="panel-title">Topología de Red IoT (Edge/Fog)</div>
                     <div id="mapChart" class="chart-container"></div>
                 </div>
                 <div class="panel">
@@ -633,33 +633,35 @@
     };
     radarChart.setOption(radarOption);
 
-    // 3. Map Chart (World map placeholder using scatter on a geo-like grid, true maps require geoJSON)
+    // 3. Topology Graph (Replaces World Map for real local value)
     var mapDom = document.getElementById('mapChart');
     var mapChart = echarts.init(mapDom, 'dark');
+    
+    var topoData = {{ topology|tojson|default('{"nodes":[], "links":[]}', true) }};
+    
     var mapOption = {
         backgroundColor: 'transparent',
-        grid: { top: 20, bottom: 20, left: 20, right: 20 },
-        xAxis: { show: false, min: -180, max: 180 },
-        yAxis: { show: false, min: -90, max: 90 },
+        tooltip: { formatter: '{b}' },
+        animationDurationUpdate: 1500,
+        animationEasingUpdate: 'quinticInOut',
         series: [{
-            type: 'effectScatter',
-            coordinateSystem: 'cartesian2d',
-            data: [
-                [-100, 40], [10, 50], [100, 30], [-50, -20]
-            ],
-            symbolSize: 10,
-            itemStyle: { color: '#ef4444', shadowBlur: 10, shadowColor: '#ef4444' },
-            rippleEffect: { brushType: 'stroke', scale: 4 }
-        }, {
-            type: 'lines',
-            coordinateSystem: 'cartesian2d',
-            effect: { show: true, period: 3, trailLength: 0.2, symbol: 'arrow', symbolSize: 5 },
-            lineStyle: { color: '#f59e0b', width: 1, opacity: 0.4, curveness: 0.3 },
-            data: [
-                {coords: [[-100, 40], [-3, 40]]},
-                {coords: [[100, 30], [-3, 40]]},
-                {coords: [[-50, -20], [-3, 40]]}
-            ]
+            type: 'graph',
+            layout: 'force',
+            force: {
+                repulsion: 300,
+                edgeLength: [50, 150],
+                gravity: 0.1,
+                friction: 0.2
+            },
+            roam: true,
+            label: { show: true, position: 'right', formatter: '{b}', color: '#f8fafc', fontSize: 11, fontWeight: 500 },
+            data: topoData.nodes,
+            links: topoData.links,
+            lineStyle: { opacity: 0.8, curveness: 0.2 },
+            emphasis: {
+                focus: 'adjacency',
+                lineStyle: { width: 4 }
+            }
         }]
     };
     mapChart.setOption(mapOption);
@@ -728,6 +730,16 @@
                 const indicators = d.vector_stats.map(v => ({name: v.name, max: 100}));
                 const values = d.vector_stats.map(v => v.percentage);
                 radarChart.setOption({ radar: { indicator: indicators }, series: [{ data: [{value: values, name: 'Vectors'}] }] });
+            }
+
+            // Update Topology Graph
+            if (d.topology) {
+                mapChart.setOption({
+                    series: [{
+                        data: d.topology.nodes,
+                        links: d.topology.links
+                    }]
+                });
             }
 
             // Update Sys Info Widget
