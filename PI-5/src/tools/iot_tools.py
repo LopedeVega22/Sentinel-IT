@@ -29,86 +29,39 @@ def init_iot_tools(iot_client):
     global _iot_client
     _iot_client = iot_client
 
-def block_ip(device: str, ip: str, reason: str) -> dict:
+def execute_diagnostic_command(device: str, command: str, reason: str) -> dict:
     """
-    Ordena el bloqueo de una IP en el firewall del dispositivo remoto.
-    Esta herramienta debe usarse ante ataques confirmados.
-    
-    Args:
-        device: ID del dispositivo objetivo (ej. Pi4-dani).
-        ip: Direccion IPv4/IPv6 a neutralizar. Excluir subredes a menos que sea critico. MUST be a valid IP format.
-        reason: Justificacion concisa del bloqueo basada en el analisis.
-    """
-    if _iot_client is None:
-        logger.error("[ERROR] Cliente IoT no inicializado.")
-        return {"status": "error", "message": "IoT Client not initialized"}
-
-    try:
-        response_topic = f"{TOPIC_ACTIONS_BASE}{device}"
-        action_payload = {
-            "accion": "bloquear_ip",
-            "ip": ip,
-            "motivo": reason
-        }
-        _iot_client.publish(response_topic, action_payload)
-        
-        # Actualizacion del log en la base de datos local para reflejar la accion
-        for attempt in range(5):
-            conn = None
-            try:
-                # check_same_thread=False y timeout aseguran mayor tolerancia en multihilo/asíncrono
-                conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
-                conn.execute('PRAGMA journal_mode=WAL;')
-                conn.execute('PRAGMA synchronous=NORMAL;')
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE logs 
-                    SET accion_tomada = CASE 
-                        WHEN accion_tomada = 'Solo Registro' THEN ?
-                        ELSE accion_tomada || ? 
-                    END
-                    WHERE id = (
-                        SELECT id FROM logs 
-                        WHERE ip_origen = ? 
-                        ORDER BY timestamp DESC 
-                        LIMIT 1
-                    )
-                """, (f"Bloqueo Activo Emitido: {ip}", f"\nBloqueo Activo Emitido: {ip}", ip))
-                conn.commit()
-                break 
-            except sqlite3.OperationalError as db_e:
-                if "locked" in str(db_e).lower() or "readonly" in str(db_e).lower():
-                    logger.warning(f"[WARNING] DB ocupada en bloqueo IP, reintento {attempt+1}/5...")
-                    time.sleep(2)
-                else:
-                    logger.error(f"[ERROR] Error en actualizacion de bloqueo: {db_e}")
-                    break
-            except Exception as db_e:
-                logger.error(f"[ERROR] Error critico en actualizacion de bloqueo: {db_e}")
-                break
-            finally:
-                if conn:
-                    conn.close()
-        
-        logger.info(f"[AGENT] Accion de bloqueo enviada a {device} para IP: {ip}")
-        return {"status": "action_sent", "target": device, "ip": ip}
-    except Exception as e:
-        logger.error(f"[ERROR] Error en ejecucion de block_ip: {e}")
-        return {"status": "error", "message": str(e)}
-
-def execute_remote_command(device: str, command: str, reason: str) -> dict:
-    """
-    Envia un script de Bash o comando individual para su ejecucion directa en el dispositivo remoto (Raspberry).
-    Util para diagnosticos o configuraciones defensivas especificas.
+    Ejecuta un comando de diagnostico o lectura remota en el dispositivo (PI-4).
+    BLOQUEARA comandos destructivos o mutadores.
     
     Args:
         device: ID del dispositivo objetivo.
-        command: Script Bash en crudo estructurado para ejecucion directa (sin formato markdown ```bash).
-        reason: Justificacion tecnica de la accion a ejecutar.
+        command: Comando Bash a ejecutar (ej. `grep 'Failed' /var/log/auth.log`).
+        reason: Justificacion del comando.
     """
     if _iot_client is None:
         logger.error("[ERROR] Cliente IoT no inicializado.")
         return {"status": "error", "message": "IoT Client not initialized"}
+
+    # Validacion HITL (Read-Only + Excepciones sudo)
+    dangerous_keywords = ['rm ', 'kill ', 'reboot', 'chmod', 'chown', 'systemctl stop', 'systemctl restart']
+    
+    # Check for dangerous keywords
+    for keyword in dangerous_keywords:
+        if keyword in command:
+            return {"status": "blocked", "message": f"Comando bloqueado por seguridad (contiene '{keyword}'). Usa request_mitigation_approval."}
+
+    # Strict sudo check
+    if 'sudo ' in command:
+        # Allowlist para comandos sudo
+        allowed_sudo = [
+            'sudo iptables -L', 'sudo iptables -S', 
+            'sudo systemctl status', 'sudo journalctl',
+            'sudo cat ', 'sudo ls '
+        ]
+        is_allowed = any(command.startswith(allowed) for allowed in allowed_sudo)
+        if not is_allowed:
+            return {"status": "blocked", "message": "Comandos 'sudo' no autorizados para lectura. Usa request_mitigation_approval si es una mitigacion."}
 
     try:
         response_topic = f"{TOPIC_ACTIONS_BASE}{device}"
@@ -118,30 +71,46 @@ def execute_remote_command(device: str, command: str, reason: str) -> dict:
             "motivo": reason
         }
         _iot_client.publish(response_topic, action_payload)
-        
-        logger.info(f"[AGENT] Comando remoto enviado a {device}: {command}")
-        
-        # Guardar en DB el comando enviado
+        logger.info(f"[AGENT] Comando de diagnostico enviado a {device}: {command}")
+        return {"status": "action_sent", "target": device, "command": command, "type": "diagnostic"}
+    except Exception as e:
+        logger.error(f"[ERROR] Error en execute_diagnostic_command: {e}")
+        return {"status": "error", "message": str(e)}
+
+def request_mitigation_approval(device: str, mitigation_command: str, rationale: str) -> dict:
+    """
+    Pone en cuarentena un comando de mitigacion destructiva (Sudo/Mutador) a la espera de aprobacion manual en el Dashboard.
+    Usa esta herramienta cuando necesites neutralizar una amenaza.
+    
+    Args:
+        device: ID del dispositivo objetivo.
+        mitigation_command: Comando Bash destructivo (ej. `sudo iptables -A ...`).
+        rationale: Justificacion para el humano de por que se debe ejecutar.
+    """
+    try:
+        # Guardar en DB el comando en estado PENDING
         for attempt in range(5):
             conn = None
             try:
                 conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
                 conn.execute('PRAGMA journal_mode=WAL;')
-                conn.execute('PRAGMA synchronous=NORMAL;')
                 cursor = conn.cursor()
                 cursor.execute("""
                     UPDATE logs 
-                    SET accion_tomada = CASE 
-                        WHEN accion_tomada = 'Solo Registro' THEN ?
-                        ELSE accion_tomada || ? 
-                    END
+                    SET status = 'PENDING',
+                        pending_command = ?,
+                        rationale = ?,
+                        accion_tomada = CASE 
+                            WHEN accion_tomada = 'Solo Registro' THEN ?
+                            ELSE accion_tomada || ? 
+                        END
                     WHERE id = (
                         SELECT id FROM logs 
                         WHERE dispositivo = ? 
                         ORDER BY timestamp DESC 
                         LIMIT 1
                     )
-                """, (f"Comando Exec: {command}", f"\nComando Exec: {command}", device))
+                """, (mitigation_command, rationale, f"Requiere Aprobacion: {mitigation_command}", f"\nRequiere Aprobacion: {mitigation_command}", device))
                 conn.commit()
                 break 
             except sqlite3.OperationalError as db_e:
@@ -155,7 +124,11 @@ def execute_remote_command(device: str, command: str, reason: str) -> dict:
                 if conn:
                     conn.close()
 
-        return {"status": "action_sent", "target": device, "command": command}
+        logger.info(f"[AGENT] Mitigacion puesta en PENDING_APPROVAL para {device}: {mitigation_command}")
+        return {
+            "status": "pending_approval", 
+            "message": "Comando en cuarentena. Se ha solicitado aprobacion al administrador. No debes hacer nada mas sobre esta alerta."
+        }
     except Exception as e:
-        logger.error(f"[ERROR] Error en envio de comando remoto: {e}")
+        logger.error(f"[ERROR] Error en request_mitigation_approval: {e}")
         return {"status": "error", "message": str(e)}

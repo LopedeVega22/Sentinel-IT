@@ -217,6 +217,7 @@ def _serialize_logs(data):
     """Converts log tuples to JSON-serializable dicts."""
     result = []
     for row in data:
+        # Extraemos con fallback seguro en caso de schemas viejos
         result.append({
             "id": row[0],
             "device": row[1],
@@ -227,7 +228,10 @@ def _serialize_logs(data):
             "verdict": row[6],
             "action": row[7],
             "mitigation_status": row[8] if len(row) > 8 else "",
-            "timestamp": row[9] if len(row) > 9 else ""
+            "status": row[9] if len(row) > 9 else "LOGGED",
+            "pending_command": row[10] if len(row) > 10 else "",
+            "rationale": row[11] if len(row) > 11 else "",
+            "timestamp": row[12] if len(row) > 12 else (row[9] if len(row) > 9 else "")
         })
     return result
 
@@ -280,6 +284,69 @@ def api_data():
         "mqtt_status": mqtt_status
     })
 
+
+@app.route('/api/mitigate/approve', methods=['POST'])
+@auth.login_required
+def approve_mitigation():
+    """Endpoint to approve, edit, or reject a pending mitigation command."""
+    if not mqtt_client or getattr(mqtt_client, 'connection', None) is None:
+        return jsonify({"status": "error", "message": "MQTT client not connected"}), 500
+        
+    try:
+        data = request.json
+        log_id = data.get('log_id')
+        action = data.get('action') # 'approve' or 'reject'
+        final_command = data.get('final_command', '')
+
+        if not log_id or not action:
+            return jsonify({"status": "error", "message": "Missing parameters"}), 400
+
+        conn = _get_connection()
+        c = conn.cursor()
+        c.execute("SELECT dispositivo, ip_origen, accion_tomada FROM logs WHERE id = ?", (log_id,))
+        row = c.fetchone()
+        
+        if not row:
+            conn.close()
+            return jsonify({"status": "error", "message": "Log not found"}), 404
+            
+        device, blocked_ip, action_taken = row
+        
+        if action == 'approve':
+            if not final_command:
+                conn.close()
+                return jsonify({"status": "error", "message": "No command provided for approval"}), 400
+            
+            # Send the command to the IoT Edge device
+            topic = f"{TOPIC_ACTIONS_BASE}{device}"
+            action_payload = {
+                "accion": "ejecutar_comando",
+                "comando": final_command,
+                "motivo": f"Manual approval from dashboard for IP {blocked_ip}"
+            }
+            logger.info(f"[INFO] Sending approved mitigation to {topic}: {final_command}")
+            mqtt_client.publish(topic, action_payload)
+            
+            new_action = str(action_taken) + " [EJECUTADO]"
+            c.execute("UPDATE logs SET status = 'APPROVED', accion_tomada = ? WHERE id = ?", (new_action, log_id))
+            message = "Comando ejecutado exitosamente."
+        
+        elif action == 'reject':
+            new_action = str(action_taken) + " [RECHAZADO]"
+            c.execute("UPDATE logs SET status = 'REJECTED', accion_tomada = ? WHERE id = ?", (new_action, log_id))
+            message = "Mitigacion rechazada."
+            
+        else:
+            conn.close()
+            return jsonify({"status": "error", "message": "Invalid action"}), 400
+            
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "message": message})
+        
+    except Exception as e:
+        logger.error(f"[ERROR] Failed to process mitigation approval: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/revert/<int:log_id>', methods=['POST'])
 @auth.login_required

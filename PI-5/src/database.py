@@ -30,15 +30,24 @@ cursor.execute('''
         veredicto_ia TEXT,
         accion_tomada TEXT,
         estado_mitigacion TEXT,
+        status TEXT DEFAULT 'LOGGED',
+        pending_command TEXT,
+        rationale TEXT,
         timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
 ''')
 
-# Migración para bases de datos existentes: intentar añadir la nueva columna
+# Migración para bases de datos existentes: intentar añadir las nuevas columnas
 try:
     cursor.execute('ALTER TABLE logs ADD COLUMN estado_mitigacion TEXT')
 except sqlite3.OperationalError:
-    # La columna ya existe
+    pass
+
+try:
+    cursor.execute("ALTER TABLE logs ADD COLUMN status TEXT DEFAULT 'LOGGED'")
+    cursor.execute("ALTER TABLE logs ADD COLUMN pending_command TEXT")
+    cursor.execute("ALTER TABLE logs ADD COLUMN rationale TEXT")
+except sqlite3.OperationalError:
     pass
 
 conn.commit()

@@ -1,0 +1,24 @@
+{
+  "recomendaciones_mitigacion": [
+    {
+      "ataque": "Fuerza Bruta SSH",
+      "comando": "sudo iptables -A INPUT -p tcp --dport 22 -s {IP} -j DROP",
+      "explicacion": "Bloquea todo el trafico entrante por el puerto 22 desde la IP atacante."
+    },
+    {
+      "ataque": "Ataque Web (XSS/SQLi) en NGINX",
+      "comando": "sudo iptables -A INPUT -p tcp --match multiport --dports 80,443 -s {IP} -j DROP",
+      "explicacion": "Bloquea trafico HTTP y HTTPS desde la IP atacante, evitando que siga interactuando con la web."
+    },
+    {
+      "ataque": "Escaneo de Puertos Masivo",
+      "comando": "sudo iptables -A INPUT -s {IP} -j DROP",
+      "explicacion": "Bloqueo total de la IP a nivel de red para todos los puertos."
+    },
+    {
+      "ataque": "Proceso Malicioso Consumiendo CPU",
+      "comando": "sudo kill -9 $(pgrep -f {nombre_proceso})",
+      "explicacion": "Termina de forma forzada cualquier proceso que coincida con el nombre dado."
+    }
+  ]
+}

@@ -978,7 +978,9 @@
                                     <td class="cell-log">
                                         <div class="action-group" style="align-items: flex-start; flex-direction: column;">
                                             <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">{{ row[7] }}</span>
-                                            {% if "bloque" in row[7]|lower and "revertido" not in row[7]|lower %}
+                                            {% if row[9] == 'PENDING' %}
+                                            <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="margin-top: 5px; background: var(--sev-high); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold; animation: pulse-dot 2s infinite;">Revisar Mitigación</button>
+                                            {% elif "bloque" in row[7]|lower and "revertido" not in row[7]|lower %}
                                             <form action="/revert/{{ row[0] }}" method="POST" style="margin-top: 5px;">
                                                 <button type="submit" class="revert-btn" title="Revert block">
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1035,16 +1037,26 @@
             <div class="command-modal-header">
                 <div class="command-modal-title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--sev-high)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                    Raw Command Viewer
+                    Aprobación de Mitigación (HITL)
                 </div>
                 <button class="command-modal-close" onclick="closeCommandModal()">&times;</button>
             </div>
             
-            <div class="command-code-label">Ejecución Firewall IPTables en Remoto <span style="float: right; color: var(--text-secondary);" id="modalPlatform"></span></div>
-            <div class="command-code-block" id="modalRawCommand"></div>
+            <input type="hidden" id="modalLogId">
+
+            <div class="command-code-label">Dispositivo Destino</div>
+            <div class="command-json-payload" id="modalPlatform" style="margin-bottom: 15px; font-weight: bold; color: var(--text-primary);"></div>
+
+            <div class="command-code-label">Justificación de la IA</div>
+            <div class="command-json-payload" id="modalRationale" style="margin-bottom: 15px; color: var(--text-secondary);"></div>
             
-            <div class="command-code-label">Payload JSON (Túnel MQTT)</div>
-            <div class="command-code-block command-json-payload" id="modalJsonPayload"></div>
+            <div class="command-code-label">Comando Bash Propuesto (Editable)</div>
+            <textarea id="modalRawCommand" class="command-code-block" style="width: 100%; resize: vertical; min-height: 80px;"></textarea>
+            
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                <button onclick="submitMitigation('reject')" style="background: rgba(239, 68, 68, 0.1); border: 1px solid var(--accent-red); color: var(--accent-red); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">Rechazar</button>
+                <button onclick="submitMitigation('approve')" style="background: var(--accent-green); border: none; color: #000; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600;">Ejecutar Comando</button>
+            </div>
         </div>
     </div>
 
@@ -1104,22 +1116,40 @@
             return div.innerHTML;
         }
 
-        function showCommandModal(device, ip) {
+        function showCommandModal(logId, device, command, rationale) {
             const modal = document.getElementById('commandModal');
-            document.getElementById('modalPlatform').textContent = `Device: ${device}`;
-            
-            // Reconstruct the exact bash command applied natively on Pi
-            document.getElementById('modalRawCommand').textContent = `sudo iptables -A INPUT -s ${ip} -j DROP`;
-            
-            // Reconstruct JSON payload sent thru MQTT
-            const payload = {
-                accion: "bloquear_ip",
-                ip: ip,
-                motivo: "Agent Automated Defense Protocol - AI Verdict Action"
-            };
-            document.getElementById('modalJsonPayload').textContent = JSON.stringify(payload, null, 2);
+            document.getElementById('modalLogId').value = logId;
+            document.getElementById('modalPlatform').textContent = device;
+            document.getElementById('modalRawCommand').value = command;
+            document.getElementById('modalRationale').textContent = rationale;
             
             modal.classList.add('active');
+        }
+
+        async function submitMitigation(action) {
+            const logId = document.getElementById('modalLogId').value;
+            const finalCommand = document.getElementById('modalRawCommand').value;
+            
+            try {
+                const res = await fetch('/api/mitigate/approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        log_id: logId,
+                        action: action,
+                        final_command: finalCommand
+                    })
+                });
+                const data = await res.json();
+                if(data.status === 'success') {
+                    closeCommandModal();
+                    refreshDashboard();
+                } else {
+                    alert("Error: " + data.message);
+                }
+            } catch(err) {
+                alert("Error de red al procesar la mitigacion.");
+            }
         }
 
         function closeCommandModal() {
@@ -1203,7 +1233,10 @@
                         let actionHtml = `<div class="action-group" style="align-items: flex-start; flex-direction: column;">
                             <span class="log-preview" onclick="this.classList.toggle('expanded')" title="Click to expand">${escapeHtml(log.action)}</span>`;
                         
-                        if (isActionBlocked(log.action)) {
+                        if (log.status === 'PENDING') {
+                            actionHtml += `
+                            <button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}', '${escapeHtml(log.rationale).replace(/'/g, "\\'")}')" style="margin-top: 5px; background: var(--sev-high); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: bold; animation: pulse-dot 2s infinite;">Revisar Mitigación</button>`;
+                        } else if (isActionBlocked(log.action)) {
                             actionHtml += `
                             <form action="/revert/${log.id}" method="POST" style="margin-top: 5px;">
                                 <button type="submit" class="revert-btn" title="Revert block">
