@@ -195,7 +195,7 @@ function start_soc() {
         echo -e "${BLUE}[INFO] Modo de directorio local detectado.${NC}"
         
         # Sincronización automática de código en despliegue continuo (GitOps) si hay un repo activo
-        if [ -d ".git" ]; then
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
             echo -e "${BLUE}[INFO] Repositorio Git local detectado. Sincronizando últimos cambios de GitHub...${NC}"
             # Se aplica git pull, mostrando aviso si hay conflicto con cambios por SCP locales
             git pull || echo -e "${YELLOW}[WARN] Hubo un error haciendo 'git pull'. Si has modificado archivos locales directamente (por ejemplo, con SCP), resuelve los conflictos para que Git aplique la versión de la nube.${NC}"
