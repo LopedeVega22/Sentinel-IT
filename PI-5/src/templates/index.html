@@ -542,12 +542,13 @@
                                         <span style="font-size: 0.72rem; color: var(--text-muted);">{{ row[7] }}</span>
                                         {% if row[9] == 'PENDING' %}
                                         <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>
+                                        {% elif row[10] and row[10]|trim != '' %}
+                                        <button onclick="showViewCommandModal('{{ row[10] | escape }}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
                                         {% endif %}
+                                        
                                         {% set action_lower = row[7]|lower %}
                                         {% if 'bloque' in action_lower and '[revertido]' not in action_lower %}
-                                        <form action="/revert/{{ row[0] }}" method="POST" style="margin:0;">
-                                            <button type="submit" class="btn-revert">REVERTIR</button>
-                                        </form>
+                                        <button onclick="showRevertModal('{{ row[0] }}', '{{ row[4] }}')" class="btn-revert">REVERTIR</button>
                                         {% endif %}
                                         {% if row[8] %}
                                         <span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: {{ row[8] }}</span>
@@ -591,6 +592,48 @@
         <pre id="rawLogContent" class="code-block" style="white-space: pre-wrap; overflow-x: auto; max-height: 400px; color: var(--accent-cyan); text-align: left;"></pre>
         <div style="display: flex; justify-content: flex-end;">
             <button class="modal-btn btn-reject" onclick="closeRawLogModal()">Cerrar</button>
+        </div>
+    </div>
+</div>
+
+<!-- VIEW COMMAND MODAL -->
+<div class="modal-overlay" id="viewCommandModal" onclick="closeViewCommandModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div class="modal-title" style="color: var(--text-primary);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+                Comando Ejecutado / Propuesto
+            </div>
+            <button onclick="closeViewCommandModal()" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Comando Bash</div>
+            <pre id="viewCommandContent" class="code-block" style="white-space: pre-wrap; color: var(--accent-cyan);"></pre>
+        </div>
+        <div style="display: flex; justify-content: flex-end;">
+            <button class="modal-btn btn-reject" onclick="closeViewCommandModal()">Cerrar</button>
+        </div>
+    </div>
+</div>
+
+<!-- REVERT MODAL -->
+<div class="modal-overlay" id="revertModal" onclick="closeRevertModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <div class="modal-header">
+            <div class="modal-title" style="color: var(--accent-orange);">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                Confirmar Reversión
+            </div>
+            <button onclick="closeRevertModal()" style="background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        <input type="hidden" id="revertLogId">
+        <div style="margin-bottom: 16px;">
+            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Se va a ejecutar el siguiente comando en el sensor para revertir el bloqueo de la IP <strong id="revertIpLabel"></strong>:</div>
+            <pre id="revertCommandContent" class="code-block" style="white-space: pre-wrap; color: var(--accent-orange);"></pre>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 12px;">
+            <button class="modal-btn btn-reject" onclick="closeRevertModal()">Cancelar</button>
+            <button class="modal-btn" style="background: var(--accent-orange); color: #000;" onclick="submitRevert()">Ejecutar Reversión</button>
         </div>
     </div>
 </div>
@@ -811,10 +854,38 @@
         });
     }
 
+    function syntaxHighlight(json) {
+        if (typeof json != 'string') {
+             json = JSON.stringify(json, undefined, 2);
+        }
+        json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+            var cls = 'number';
+            if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                    cls = 'key';
+                } else {
+                    cls = 'string';
+                }
+            } else if (/true|false/.test(match)) {
+                cls = 'boolean';
+            } else if (/null/.test(match)) {
+                cls = 'null';
+            }
+            let color = '';
+            if (cls === 'key') color = '#f87171'; // red
+            else if (cls === 'string') color = '#a3e635'; // green
+            else if (cls === 'number') color = '#fbbf24'; // yellow
+            else if (cls === 'boolean') color = '#60a5fa'; // blue
+            else if (cls === 'null') color = '#9ca3af'; // gray
+            return '<span style="color:' + color + ';">' + match + '</span>';
+        });
+    }
+
     function openRawLogModal(logJson) {
         try {
             const parsed = JSON.parse(logJson);
-            document.getElementById('rawLogContent').textContent = JSON.stringify(parsed, null, 2);
+            document.getElementById('rawLogContent').innerHTML = syntaxHighlight(parsed);
         } catch(e) {
             document.getElementById('rawLogContent').textContent = logJson;
         }
@@ -823,6 +894,41 @@
 
     function closeRawLogModal() {
         document.getElementById('rawLogModal').classList.remove('active');
+    }
+
+    function showViewCommandModal(command) {
+        if (!command || command.trim() === '') command = 'No hay comando registrado.';
+        document.getElementById('viewCommandContent').textContent = command;
+        document.getElementById('viewCommandModal').classList.add('active');
+    }
+    function closeViewCommandModal() {
+        document.getElementById('viewCommandModal').classList.remove('active');
+    }
+
+    function showRevertModal(logId, ip) {
+        document.getElementById('revertLogId').value = logId;
+        document.getElementById('revertIpLabel').textContent = ip;
+        document.getElementById('revertCommandContent').textContent = `sudo iptables -D INPUT -s ${ip} -j DROP`;
+        document.getElementById('revertModal').classList.add('active');
+    }
+    function closeRevertModal() {
+        document.getElementById('revertModal').classList.remove('active');
+    }
+    
+    async function submitRevert() {
+        const logId = document.getElementById('revertLogId').value;
+        try {
+            const res = await fetch(`/revert/${logId}`, { method: 'POST' });
+            if(res.ok) {
+                closeRevertModal();
+                showToast("Reversión enviada al sensor", "success");
+                refreshDashboard();
+            } else {
+                showToast("Error al revertir acción", "error");
+            }
+        } catch(err) {
+            showToast("Error de red", "error");
+        }
     }
 
     function showCommandModal(logId, device, command, rationale) {
@@ -942,9 +1048,12 @@
                     
                     if (log.status === 'PENDING') {
                         actionHtml += `<button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}', '${escapeHtml(log.rationale).replace(/'/g, "\\'")}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>`;
+                    } else if (log.pending_command && log.pending_command.trim() !== '') {
+                        actionHtml += `<button onclick="showViewCommandModal('${escapeHtml(log.pending_command).replace(/'/g, "\\'")}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
                     }
+
                     if (actionLower.includes('bloque') && !actionLower.includes('[revertido]')) {
-                        actionHtml += `<form action="/revert/${log.id}" method="POST" style="margin:0;"><button type="submit" class="btn-revert">REVERTIR</button></form>`;
+                        actionHtml += `<button onclick="showRevertModal('${log.id}', '${escapeHtml(log.source_ip)}')" class="btn-revert">REVERTIR</button>`;
                     }
                     if (log.mitigation_status) {
                         actionHtml += `<span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: ${escapeHtml(log.mitigation_status)}</span>`;
