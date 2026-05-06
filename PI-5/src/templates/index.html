@@ -121,9 +121,25 @@
         }
         .agent-label { font-size: 0.75rem; font-weight: 700; color: var(--accent-green); letter-spacing: 1px; }
 
-        .sys-info { margin-bottom: 30px; }
-        .sys-info-item { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 12px; color: var(--text-secondary); }
-        .sys-info-val { font-family: var(--font-mono); color: var(--text-primary); }
+        .node-widget { margin-bottom: 30px; }
+        .node-widget-title { font-size: 0.7rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 600; }
+        .node-widget-body { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+        .node-icon { width: 36px; height: 36px; color: var(--text-secondary); filter: drop-shadow(0 0 5px rgba(255,255,255,0.1)); }
+        .node-details { flex: 1; }
+        .node-name { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); margin-bottom: 10px; letter-spacing: 0.5px; }
+        
+        .node-stat { margin-bottom: 8px; }
+        .node-stat-header { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; }
+        .node-stat-bar-bg { width: 100%; height: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 3px; overflow: hidden; }
+        .node-stat-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+        .cpu-bar { background: linear-gradient(90deg, #3b82f6, #06b6d4); box-shadow: 0 0 8px rgba(6,182,212,0.5); }
+        .ram-bar { background: linear-gradient(90deg, #8b5cf6, #d946ef); box-shadow: 0 0 8px rgba(139,92,246,0.5); }
+        
+        .node-footer { display: flex; flex-direction: column; gap: 8px; }
+        .node-footer-item { display: flex; align-items: center; font-size: 0.75rem; }
+        .dot-green { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); margin-right: 8px; box-shadow: var(--glow-green); }
+        .footer-label { color: var(--text-secondary); flex: 1; }
+        .footer-val { color: var(--text-primary); font-family: var(--font-mono); font-weight: 500; }
 
         .nav-menu { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
         .nav-link {
@@ -307,14 +323,45 @@
             <div class="agent-label">IA AGENT ACTIVE</div>
         </div>
 
-        <div class="sys-info">
-            <div class="sys-info-item">
-                <span>MQTT Broker</span>
-                <span class="sys-info-val" style="color: var(--accent-green);">{{ mqtt_status|upper }}</span>
+        <div class="node-widget">
+            <div class="node-widget-title">NODO PRINCIPAL</div>
+            <div class="node-widget-body">
+                <svg class="node-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                    <line x1="12" y1="18" x2="12.01" y2="18"></line>
+                    <rect x="8" y="6" width="8" height="4" rx="1" ry="1"></rect>
+                </svg>
+                <div class="node-details">
+                    <div class="node-name">PI-5 SERVER</div>
+                    
+                    <div class="node-stat">
+                        <div class="node-stat-header"><span>CPU</span><span id="stat-cpu">{{ sys_info.cpu|default(18, true) }}%</span></div>
+                        <div class="node-stat-bar-bg"><div class="node-stat-bar cpu-bar" id="bar-cpu" style="width: {{ sys_info.cpu|default(18, true) }}%;"></div></div>
+                    </div>
+        
+                    <div class="node-stat">
+                        <div class="node-stat-header"><span>RAM</span><span id="stat-ram">{{ sys_info.ram|default(42, true) }}%</span></div>
+                        <div class="node-stat-bar-bg"><div class="node-stat-bar ram-bar" id="bar-ram" style="width: {{ sys_info.ram|default(42, true) }}%;"></div></div>
+                    </div>
+                </div>
             </div>
-            <div class="sys-info-item">
-                <span>Coordinator</span>
-                <span class="sys-info-val">PI-5 SERVER</span>
+            
+            <div class="node-footer">
+                <div class="node-footer-item">
+                    <span class="dot-green"></span>
+                    <span class="footer-label">UPTIME</span>
+                    <span class="footer-val" id="stat-uptime">{{ sys_info.uptime|default('15d 8h 32m', true) }}</span>
+                </div>
+                <div class="node-footer-item">
+                    <span class="dot-green"></span>
+                    <span class="footer-label">IP LOCAL</span>
+                    <span class="footer-val" id="stat-ip">{{ sys_info.ip_local|default('192.168.1.105', true) }}</span>
+                </div>
+                <div class="node-footer-item" style="margin-top: 4px;">
+                    <span class="dot-green" id="mqtt-dot" style="background: {% if mqtt_status == 'connected' %}var(--accent-green){% else %}var(--accent-red){% endif %}; box-shadow: none;"></span>
+                    <span class="footer-label">MQTT BROKER</span>
+                    <span class="footer-val" id="stat-mqtt" style="color: {% if mqtt_status == 'connected' %}var(--accent-green){% else %}var(--accent-red){% endif %};">{{ mqtt_status|upper }}</span>
+                </div>
             </div>
         </div>
 
@@ -681,6 +728,31 @@
                 const indicators = d.vector_stats.map(v => ({name: v.name, max: 100}));
                 const values = d.vector_stats.map(v => v.percentage);
                 radarChart.setOption({ radar: { indicator: indicators }, series: [{ data: [{value: values, name: 'Vectors'}] }] });
+            }
+
+            // Update Sys Info Widget
+            if (d.sys_info) {
+                document.getElementById('stat-cpu').textContent = d.sys_info.cpu + '%';
+                document.getElementById('bar-cpu').style.width = d.sys_info.cpu + '%';
+                
+                document.getElementById('stat-ram').textContent = d.sys_info.ram + '%';
+                document.getElementById('bar-ram').style.width = d.sys_info.ram + '%';
+                
+                document.getElementById('stat-uptime').textContent = d.sys_info.uptime;
+                document.getElementById('stat-ip').textContent = d.sys_info.ip_local;
+            }
+
+            // Update MQTT
+            const mqttDot = document.getElementById('mqtt-dot');
+            const statMqtt = document.getElementById('stat-mqtt');
+            if (d.mqtt_status === 'connected') {
+                mqttDot.style.background = 'var(--accent-green)';
+                statMqtt.style.color = 'var(--accent-green)';
+                statMqtt.textContent = 'CONNECTED';
+            } else {
+                mqttDot.style.background = 'var(--accent-red)';
+                statMqtt.style.color = 'var(--accent-red)';
+                statMqtt.textContent = 'DISCONNECTED';
             }
 
             // Update Table
