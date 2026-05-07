@@ -99,56 +99,111 @@
         .brand-text h1 { font-size: 1.1rem; font-weight: 700; letter-spacing: 0.5px; }
         .brand-text span { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
 
+        /* --- AGENT STATUS BOX --- */
         .agent-status-box {
             background: rgba(16, 185, 129, 0.05);
             border: 1px solid rgba(16, 185, 129, 0.2);
             border-radius: var(--radius-md);
-            padding: 20px;
+            padding: 16px 20px;
             text-align: center;
             margin-bottom: 24px;
             box-shadow: var(--glow-green);
+            position: relative;
+            overflow: hidden;
         }
-        .sonar-wrapper { position: relative; width: 60px; height: 60px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; }
-        .sonar-core { width: 16px; height: 16px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 10px var(--accent-green); z-index: 2; }
+        .agent-status-box::after {
+            content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--accent-green), transparent);
+            animation: heartbeat-line 2.5s ease-in-out infinite;
+        }
+        @keyframes heartbeat-line {
+            0%, 100% { opacity: 0.2; transform: scaleX(0.3); }
+            50% { opacity: 1; transform: scaleX(1); }
+        }
+        .sonar-wrapper { position: relative; width: 50px; height: 50px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center; }
+        .sonar-core { width: 14px; height: 14px; background: var(--accent-green); border-radius: 50%; box-shadow: 0 0 12px var(--accent-green), 0 0 4px var(--accent-green); z-index: 2; }
         .sonar-ring {
             position: absolute; width: 100%; height: 100%; border-radius: 50%;
-            border: 2px solid var(--accent-green); opacity: 0;
-            animation: sonar 2s infinite ease-out;
+            border: 1.5px solid var(--accent-green); opacity: 0;
+            animation: sonar 2.5s infinite ease-out;
         }
         @keyframes sonar {
-            0% { transform: scale(0.2); opacity: 0.8; }
-            100% { transform: scale(1); opacity: 0; }
+            0% { transform: scale(0.3); opacity: 0.6; }
+            100% { transform: scale(1.1); opacity: 0; }
         }
-        .agent-label { font-size: 0.75rem; font-weight: 700; color: var(--accent-green); letter-spacing: 1px; }
+        .agent-label { font-size: 0.7rem; font-weight: 700; color: var(--accent-green); letter-spacing: 1.5px; }
+        .agent-model { font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 4px; }
 
-        .node-widget { margin-bottom: 30px; }
-        .node-widget-title { font-size: 0.7rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 600; }
-        .node-widget-body { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
-        .node-icon { width: 36px; height: 36px; color: var(--text-secondary); filter: drop-shadow(0 0 5px rgba(255,255,255,0.1)); }
+        /* --- NODE WIDGET (Glassmorphism) --- */
+        .node-widget {
+            margin-bottom: 24px;
+            background: rgba(14, 20, 36, 0.5);
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            position: relative; overflow: hidden;
+        }
+        .node-widget::before {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(59,130,246,0.3), transparent);
+        }
+        .node-widget-title { font-size: 0.65rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 14px; font-weight: 600; }
+        .node-widget-body { display: flex; gap: 12px; margin-bottom: 14px; align-items: center; }
+        .node-icon { width: 32px; height: 32px; color: var(--accent-blue); filter: drop-shadow(0 0 6px rgba(59,130,246,0.4)); }
         .node-details { flex: 1; }
-        .node-name { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); margin-bottom: 10px; letter-spacing: 0.5px; }
+        .node-name { font-weight: 700; font-size: 0.9rem; color: var(--text-primary); margin-bottom: 10px; letter-spacing: 0.5px; }
         
-        .node-stat { margin-bottom: 8px; }
-        .node-stat-header { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px; }
-        .node-stat-bar-bg { width: 100%; height: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 3px; overflow: hidden; }
-        .node-stat-bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
-        .cpu-bar { background: linear-gradient(90deg, #3b82f6, #06b6d4); box-shadow: 0 0 8px rgba(6,182,212,0.5); }
-        .ram-bar { background: linear-gradient(90deg, #8b5cf6, #d946ef); box-shadow: 0 0 8px rgba(139,92,246,0.5); }
-        
-        .node-footer { display: flex; flex-direction: column; gap: 8px; }
-        .node-footer-item { display: flex; align-items: center; font-size: 0.75rem; }
-        .dot-green { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); margin-right: 8px; box-shadow: var(--glow-green); }
-        .footer-label { color: var(--text-secondary); flex: 1; }
-        .footer-val { color: var(--text-primary); font-family: var(--font-mono); font-weight: 500; }
+        .node-stat { margin-bottom: 10px; }
+        .node-stat-header { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 5px; }
+        .node-stat-header .stat-val { font-family: var(--font-mono); font-weight: 600; }
+        .node-stat-header .stat-val.normal { color: var(--accent-cyan); }
+        .node-stat-header .stat-val.warning { color: var(--accent-orange); }
+        .node-stat-header .stat-val.critical { color: var(--accent-red); }
+        .node-stat-header .stat-val.na { color: var(--text-muted); }
+        .node-stat-bar-bg { width: 100%; height: 5px; background: rgba(255, 255, 255, 0.06); border-radius: 3px; overflow: hidden; }
+        .node-stat-bar { height: 100%; border-radius: 3px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1), background 0.5s ease, box-shadow 0.5s ease; }
+        .cpu-bar { background: linear-gradient(90deg, #3b82f6, #06b6d4); box-shadow: 0 0 6px rgba(6,182,212,0.4); }
+        .cpu-bar.warning { background: linear-gradient(90deg, #f59e0b, #f97316); box-shadow: 0 0 6px rgba(249,115,22,0.5); }
+        .cpu-bar.critical { background: linear-gradient(90deg, #ef4444, #dc2626); box-shadow: 0 0 8px rgba(239,68,68,0.6); animation: bar-pulse 1.5s ease-in-out infinite; }
+        .ram-bar { background: linear-gradient(90deg, #8b5cf6, #d946ef); box-shadow: 0 0 6px rgba(139,92,246,0.4); }
+        .ram-bar.warning { background: linear-gradient(90deg, #f59e0b, #f97316); box-shadow: 0 0 6px rgba(249,115,22,0.5); }
+        .ram-bar.critical { background: linear-gradient(90deg, #ef4444, #dc2626); box-shadow: 0 0 8px rgba(239,68,68,0.6); animation: bar-pulse 1.5s ease-in-out infinite; }
+        @keyframes bar-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
 
-        .nav-menu { display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
+        /* --- NODE FOOTER (Mini Cards) --- */
+        .node-footer { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+        .node-footer-item {
+            display: flex; align-items: center; font-size: 0.72rem;
+            background: rgba(255,255,255,0.02); border-radius: 6px; padding: 6px 8px;
+            transition: background 0.2s;
+        }
+        .node-footer-item:hover { background: rgba(255,255,255,0.05); }
+        .dot-indicator { width: 6px; height: 6px; border-radius: 50%; margin-right: 8px; flex-shrink: 0; transition: background 0.3s, box-shadow 0.3s; }
+        .dot-indicator.green { background: var(--accent-green); box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+        .dot-indicator.red { background: var(--accent-red); box-shadow: 0 0 6px rgba(239,68,68,0.5); }
+        .dot-indicator.blink { animation: dot-blink 2s ease-in-out infinite; }
+        @keyframes dot-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .footer-label { color: var(--text-muted); flex: 1; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .footer-val { color: var(--text-primary); font-family: var(--font-mono); font-weight: 500; font-size: 0.72rem; }
+        .footer-val.connected { color: var(--accent-green); }
+        .footer-val.disconnected { color: var(--accent-red); }
+
+        /* --- LAST SYNC --- */
+        .last-sync { font-size: 0.6rem; color: var(--text-muted); text-align: center; margin-top: 8px; font-family: var(--font-mono); opacity: 0.7; }
+
+        /* --- NAV MENU --- */
+        .nav-menu { display: flex; flex-direction: column; gap: 6px; margin-top: auto; }
         .nav-link {
-            display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+            display: flex; align-items: center; gap: 12px; padding: 10px 14px;
             border-radius: 8px; color: var(--text-secondary); text-decoration: none;
-            font-size: 0.9rem; font-weight: 500; transition: all 0.2s;
+            font-size: 0.85rem; font-weight: 500; transition: all 0.25s; position: relative;
         }
         .nav-link.active { background: rgba(59, 130, 246, 0.1); color: var(--accent-blue); border-left: 3px solid var(--accent-blue); }
-        .nav-link:hover:not(.active) { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); }
+        .nav-link:hover:not(.active) { background: rgba(255, 255, 255, 0.05); color: var(--text-primary); box-shadow: inset 3px 0 0 rgba(255,255,255,0.1); }
+        .nav-badge { margin-left: auto; font-size: 0.65rem; font-weight: 700; font-family: var(--font-mono); padding: 2px 7px; border-radius: 10px; min-width: 20px; text-align: center; }
+        .nav-badge.red { background: rgba(239,68,68,0.2); color: var(--accent-red); }
+        .nav-badge.green { background: rgba(16,185,129,0.2); color: var(--accent-green); }
 
         /* --- MAIN CONTENT --- */
         .main-content {
@@ -338,13 +393,14 @@
             </div>
         </div>
 
-        <div class="agent-status-box">
+        <div class="agent-status-box" id="agent-status-box">
             <div class="sonar-wrapper">
-                <div class="sonar-core"></div>
+                <div class="sonar-core" id="sonar-core"></div>
                 <div class="sonar-ring"></div>
                 <div class="sonar-ring" style="animation-delay: 1s;"></div>
             </div>
-            <div class="agent-label">IA AGENT ACTIVE</div>
+            <div class="agent-label" id="agent-label">IA AGENT ACTIVE</div>
+            <div class="agent-model" id="agent-model">{{ sys_info.ai_model|default('N/A', true) }}</div>
         </div>
 
         <div class="node-widget">
@@ -359,34 +415,41 @@
                     <div class="node-name">PI-5 SERVER</div>
                     
                     <div class="node-stat">
-                        <div class="node-stat-header"><span>CPU</span><span id="stat-cpu">{{ sys_info.cpu|default(18, true) }}%</span></div>
-                        <div class="node-stat-bar-bg"><div class="node-stat-bar cpu-bar" id="bar-cpu" style="width: {{ sys_info.cpu|default(18, true) }}%;"></div></div>
+                        <div class="node-stat-header">
+                            <span>CPU</span>
+                            <span class="stat-val {{ 'na' if sys_info.cpu == 'N/A' else ('critical' if sys_info.cpu|float > 80 else ('warning' if sys_info.cpu|float > 50 else 'normal')) }}" id="stat-cpu">{{ sys_info.cpu|default('N/A', true) }}{% if sys_info.cpu != 'N/A' %}%{% endif %}</span>
+                        </div>
+                        <div class="node-stat-bar-bg"><div class="node-stat-bar cpu-bar" id="bar-cpu" style="width: {{ '0' if sys_info.cpu == 'N/A' else sys_info.cpu }}%;"></div></div>
                     </div>
         
                     <div class="node-stat">
-                        <div class="node-stat-header"><span>RAM</span><span id="stat-ram">{{ sys_info.ram|default(42, true) }}%</span></div>
-                        <div class="node-stat-bar-bg"><div class="node-stat-bar ram-bar" id="bar-ram" style="width: {{ sys_info.ram|default(42, true) }}%;"></div></div>
+                        <div class="node-stat-header">
+                            <span>RAM</span>
+                            <span class="stat-val {{ 'na' if sys_info.ram == 'N/A' else ('critical' if sys_info.ram|float > 80 else ('warning' if sys_info.ram|float > 50 else 'normal')) }}" id="stat-ram">{{ sys_info.ram|default('N/A', true) }}{% if sys_info.ram != 'N/A' %}%{% endif %}</span>
+                        </div>
+                        <div class="node-stat-bar-bg"><div class="node-stat-bar ram-bar" id="bar-ram" style="width: {{ '0' if sys_info.ram == 'N/A' else sys_info.ram }}%;"></div></div>
                     </div>
                 </div>
             </div>
             
             <div class="node-footer">
                 <div class="node-footer-item">
-                    <span class="dot-green"></span>
-                    <span class="footer-label">UPTIME</span>
-                    <span class="footer-val" id="stat-uptime">{{ sys_info.uptime|default('15d 8h 32m', true) }}</span>
+                    <span class="dot-indicator green"></span>
+                    <span class="footer-label">Uptime</span>
+                    <span class="footer-val" id="stat-uptime">{{ sys_info.uptime|default('N/A', true) }}</span>
                 </div>
                 <div class="node-footer-item">
-                    <span class="dot-green"></span>
-                    <span class="footer-label">IP LOCAL</span>
-                    <span class="footer-val" id="stat-ip">{{ sys_info.ip_local|default('192.168.1.105', true) }}</span>
+                    <span class="dot-indicator green"></span>
+                    <span class="footer-label">IP Local</span>
+                    <span class="footer-val" id="stat-ip">{{ sys_info.ip_local|default('N/A', true) }}</span>
                 </div>
-                <div class="node-footer-item" style="margin-top: 4px;">
-                    <span class="dot-green" id="mqtt-dot" style="background: {% if mqtt_status == 'connected' %}var(--accent-green){% else %}var(--accent-red){% endif %}; box-shadow: none;"></span>
-                    <span class="footer-label">MQTT BROKER</span>
-                    <span class="footer-val" id="stat-mqtt" style="color: {% if mqtt_status == 'connected' %}var(--accent-green){% else %}var(--accent-red){% endif %};">{{ mqtt_status|upper }}</span>
+                <div class="node-footer-item">
+                    <span class="dot-indicator {{ 'green blink' if mqtt_status == 'connected' else 'red' }}" id="mqtt-dot"></span>
+                    <span class="footer-label">MQTT Broker</span>
+                    <span class="footer-val {{ 'connected' if mqtt_status == 'connected' else 'disconnected' }}" id="stat-mqtt">{{ mqtt_status|upper }}</span>
                 </div>
             </div>
+            <div class="last-sync" id="last-sync">Sync: —</div>
         </div>
 
         <nav class="nav-menu">
@@ -397,10 +460,12 @@
             <a href="#" class="nav-link" onclick="setFilter('CRITICAL', this)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
                 Critical Threats
+                <span class="nav-badge red" id="badge-critical">{{ total_criticals|default(0, true) }}</span>
             </a>
             <a href="#" class="nav-link" onclick="setFilter('BLOCKED', this)">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
                 Blocked IPs
+                <span class="nav-badge green" id="badge-blocked">{{ total_blocks|default(0, true) }}</span>
             </a>
         </nav>
     </aside>
@@ -968,6 +1033,34 @@
         } catch(err) { showToast("Error de red al procesar mitigación.", "error"); }
     }
 
+    // --- SIDEBAR: Dynamic stat bar updater with threshold colors ---
+    function updateStat(type, value) {
+        const textEl = document.getElementById('stat-' + type);
+        const barEl = document.getElementById('bar-' + type);
+        if (!textEl || !barEl) return;
+
+        if (value === 'N/A' || value === null || value === undefined) {
+            textEl.textContent = 'N/A';
+            textEl.className = 'stat-val na';
+            barEl.style.width = '0%';
+            barEl.className = 'node-stat-bar ' + type + '-bar';
+            return;
+        }
+
+        const num = parseFloat(value);
+        textEl.textContent = num.toFixed(1) + '%';
+
+        // Threshold class
+        let thresholdClass = '';
+        let valClass = 'normal';
+        if (num > 80) { thresholdClass = ' critical'; valClass = 'critical'; }
+        else if (num > 50) { thresholdClass = ' warning'; valClass = 'warning'; }
+
+        textEl.className = 'stat-val ' + valClass;
+        barEl.className = 'node-stat-bar ' + type + '-bar' + thresholdClass;
+        barEl.style.width = num + '%';
+    }
+
     async function refreshDashboard() {
         try {
             const res = await fetch('/api/data');
@@ -1001,17 +1094,22 @@
                 mapChart.setOption({ series: [{ data: d.topology.nodes, links: d.topology.links }] });
             }
 
+            // --- SIDEBAR: System Info ---
             if (d.sys_info) {
-                document.getElementById('stat-cpu').textContent = d.sys_info.cpu + '%';
-                if(d.sys_info.cpu !== 'N/A') document.getElementById('bar-cpu').style.width = d.sys_info.cpu + '%';
+                updateStat('cpu', d.sys_info.cpu);
+                updateStat('ram', d.sys_info.ram);
                 
-                document.getElementById('stat-ram').textContent = d.sys_info.ram + '%';
-                if(d.sys_info.ram !== 'N/A') document.getElementById('bar-ram').style.width = d.sys_info.ram + '%';
+                const uptimeEl = document.getElementById('stat-uptime');
+                if (uptimeEl) uptimeEl.textContent = d.sys_info.uptime || 'N/A';
                 
-                document.getElementById('stat-uptime').textContent = d.sys_info.uptime;
-                document.getElementById('stat-ip').textContent = d.sys_info.ip_local;
+                const ipEl = document.getElementById('stat-ip');
+                if (ipEl) ipEl.textContent = d.sys_info.ip_local || 'N/A';
+
+                const modelEl = document.getElementById('agent-model');
+                if (modelEl && d.sys_info.ai_model) modelEl.textContent = d.sys_info.ai_model;
             }
 
+            // --- SIDEBAR: MQTT & Agent Status ---
             const mqttDot = document.getElementById('mqtt-dot');
             const statMqtt = document.getElementById('stat-mqtt');
             const agentStatusBox = document.getElementById('agent-status-box');
@@ -1019,28 +1117,28 @@
             const sonarCore = document.getElementById('sonar-core');
 
             if (d.mqtt_status === 'connected') {
-                mqttDot.style.background = 'var(--accent-green)';
-                statMqtt.style.color = 'var(--accent-green)';
-                statMqtt.textContent = 'CONNECTED';
-                agentStatusBox.style.background = 'rgba(16, 185, 129, 0.05)';
-                agentStatusBox.style.borderColor = 'rgba(16, 185, 129, 0.2)';
-                agentStatusBox.style.boxShadow = 'var(--glow-green)';
-                agentLabel.style.color = 'var(--accent-green)';
-                agentLabel.textContent = 'IA AGENT ACTIVE';
-                sonarCore.style.background = 'var(--accent-green)';
-                sonarCore.style.boxShadow = '0 0 10px var(--accent-green)';
+                if (mqttDot) { mqttDot.className = 'dot-indicator green blink'; }
+                if (statMqtt) { statMqtt.textContent = 'CONNECTED'; statMqtt.className = 'footer-val connected'; }
+                if (agentStatusBox) { agentStatusBox.style.background = 'rgba(16, 185, 129, 0.05)'; agentStatusBox.style.borderColor = 'rgba(16, 185, 129, 0.2)'; agentStatusBox.style.boxShadow = 'var(--glow-green)'; }
+                if (agentLabel) { agentLabel.style.color = 'var(--accent-green)'; agentLabel.textContent = 'IA AGENT ACTIVE'; }
+                if (sonarCore) { sonarCore.style.background = 'var(--accent-green)'; sonarCore.style.boxShadow = '0 0 12px var(--accent-green), 0 0 4px var(--accent-green)'; }
             } else {
-                mqttDot.style.background = 'var(--accent-red)';
-                statMqtt.style.color = 'var(--accent-red)';
-                statMqtt.textContent = 'DISCONNECTED';
-                agentStatusBox.style.background = 'rgba(239, 68, 68, 0.05)';
-                agentStatusBox.style.borderColor = 'rgba(239, 68, 68, 0.2)';
-                agentStatusBox.style.boxShadow = 'var(--glow-red)';
-                agentLabel.style.color = 'var(--accent-red)';
-                agentLabel.textContent = 'IA AGENT OFFLINE';
-                sonarCore.style.background = 'var(--accent-red)';
-                sonarCore.style.boxShadow = '0 0 10px var(--accent-red)';
+                if (mqttDot) { mqttDot.className = 'dot-indicator red'; }
+                if (statMqtt) { statMqtt.textContent = 'DISCONNECTED'; statMqtt.className = 'footer-val disconnected'; }
+                if (agentStatusBox) { agentStatusBox.style.background = 'rgba(239, 68, 68, 0.05)'; agentStatusBox.style.borderColor = 'rgba(239, 68, 68, 0.2)'; agentStatusBox.style.boxShadow = 'var(--glow-red)'; }
+                if (agentLabel) { agentLabel.style.color = 'var(--accent-red)'; agentLabel.textContent = 'IA AGENT OFFLINE'; }
+                if (sonarCore) { sonarCore.style.background = 'var(--accent-red)'; sonarCore.style.boxShadow = '0 0 12px var(--accent-red), 0 0 4px var(--accent-red)'; }
             }
+
+            // --- SIDEBAR: Nav Badges ---
+            const badgeCrit = document.getElementById('badge-critical');
+            if (badgeCrit) badgeCrit.textContent = d.total_criticals;
+            const badgeBlock = document.getElementById('badge-blocked');
+            if (badgeBlock) badgeBlock.textContent = d.total_blocks;
+
+            // --- SIDEBAR: Last Sync ---
+            const syncEl = document.getElementById('last-sync');
+            if (syncEl) syncEl.textContent = 'Sync: ' + new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
 
             const tbody = document.getElementById('feed-body');
             document.getElementById('feed-count').textContent = d.logs.length + ' eventos';

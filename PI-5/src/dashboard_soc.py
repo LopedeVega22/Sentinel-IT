@@ -292,12 +292,24 @@ import socket
 from datetime import datetime
 
 def get_sys_info():
+    """Retrieves system metrics with independent fallbacks per metric."""
+    # CPU
     try:
         import psutil
         cpu = psutil.cpu_percent(interval=0.1)
+    except Exception:
+        cpu = "N/A"
+
+    # RAM
+    try:
+        import psutil
         ram = psutil.virtual_memory().percent
-        
-        # Uptime
+    except Exception:
+        ram = "N/A"
+
+    # Uptime
+    try:
+        import psutil
         boot_time = datetime.fromtimestamp(psutil.boot_time())
         now = datetime.now()
         uptime_diff = now - boot_time
@@ -305,24 +317,30 @@ def get_sys_info():
         hours, remainder = divmod(remainder, 3600)
         minutes, _ = divmod(remainder, 60)
         uptime_str = f"{int(days)}d {int(hours)}h {int(minutes)}m"
-        
-        # Local IP
+    except Exception:
+        uptime_str = "N/A"
+
+    # Local IP
+    try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2)
         s.connect(("8.8.8.8", 80))
         ip_local = s.getsockname()[0]
         s.close()
     except Exception:
-        cpu = "N/A"
-        ram = "N/A"
-        uptime_str = "Error"
         ip_local = "N/A"
-        
+
+    # AI Model name
+    ai_model = os.environ.get("AI_MODEL", "N/A")
+
     return {
         "cpu": cpu,
         "ram": ram,
         "uptime": uptime_str,
-        "ip_local": ip_local
+        "ip_local": ip_local,
+        "ai_model": ai_model
     }
+
 
 @app.route('/')
 @auth.login_required
