@@ -3,7 +3,7 @@ from dotenv import load_dotenv, find_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from tools.db_tools import update_alert_status
-from tools.iot_tools import execute_remote_command
+from tools.iot_tools import execute_diagnostic_command, request_mitigation_approval
 
 # Búsqueda robusta del .env
 env_path = find_dotenv(usecwd=True)
@@ -44,14 +44,15 @@ output: ...
    - Pass the `device` (from `sensor`), `command_result` (the raw `output` or command used), and `mitigation_status` ("EXITO" if success, "FALLO" if error).
 
 3. **Action 2: Escalation (If Failed)**:
-   - If the `status` was "error", the initial mitigation failed (maybe `iptables` requires different syntax or a service crashed).
-   - You MAY use `execute_remote_command` to apply an alternative fix (e.g. `sudo systemctl restart nginx` if nginx failed).
-   - If you do not have an alternative fix, do nothing else.
+    - If the `status` was "error", the initial mitigation failed (maybe `iptables` requires different syntax or a service crashed).
+    - You MAY use `request_mitigation_approval` to propose an alternative destructive fix for human review.
+    - You MAY use `execute_diagnostic_command` to gather more diagnostic info (read-only).
+    - If you do not have an alternative fix, do nothing else.
 
 ### CRITICAL RULES:
 - YOU MUST call `update_alert_status` EXACTLY ONCE per feedback event.
 - After calling the necessary tool(s), YOU MUST STOP tool execution.
 - Finish your turn by replying with a short TEXT message summarizing the status registered.
 - DO NOT hallucinate tools.""",
-    tools=[update_alert_status, execute_remote_command]
+    tools=[update_alert_status, execute_diagnostic_command, request_mitigation_approval]
 )
