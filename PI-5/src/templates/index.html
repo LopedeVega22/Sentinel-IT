@@ -900,6 +900,7 @@
 
     function showViewCommandModal(command) {
         if (!command || command.trim() === '') command = 'No hay comando registrado.';
+        command = command.replace(/\s*#\s*\(.*?\)\s*$/, '').trim();
         document.getElementById('viewCommandContent').textContent = command;
         document.getElementById('viewCommandModal').classList.add('active');
     }
@@ -939,7 +940,7 @@
     function showCommandModal(logId, device, command, rationale) {
         document.getElementById('modalLogId').value = logId;
         document.getElementById('modalPlatform').textContent = device;
-        document.getElementById('modalRawCommand').value = command;
+        document.getElementById('modalRawCommand').value = (command || '').replace(/\s*#\s*\(.*?\)\s*$/, '').trim();
         document.getElementById('modalRationale').textContent = rationale;
         document.getElementById('commandModal').classList.add('active');
     }

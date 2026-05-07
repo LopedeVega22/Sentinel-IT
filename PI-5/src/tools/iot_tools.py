@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import logging
 import sqlite3
@@ -88,6 +89,8 @@ def request_mitigation_approval(device: str, mitigation_command: str, rationale:
         rationale: Justificacion para el humano de por que se debe ejecutar.
     """
     try:
+        # Sanitizar: eliminar comentarios de bash al final del comando (ej. "# (Comando inferido)")
+        mitigation_command = re.sub(r'\s*#\s*\(.*?\)\s*$', '', mitigation_command).strip()
         # Guardar en DB el comando en estado PENDING
         for attempt in range(5):
             conn = None
