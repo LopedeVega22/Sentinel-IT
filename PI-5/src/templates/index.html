@@ -543,22 +543,14 @@
                                         {% if row[9] == 'PENDING' %}
                                         <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>
                                         {% else %}
-                                            {% set action_lower = row[7]|lower %}
-                                            {% set cmd_to_show = row[10] %}
-                                            {% if not cmd_to_show or cmd_to_show|trim == '' %}
-                                                {% if 'bloque' in action_lower %}
-                                                    {% set cmd_to_show = 'sudo iptables -A INPUT -s ' ~ row[4] ~ ' -j DROP  # (Comando inferido)' %}
-                                                {% endif %}
-                                            {% endif %}
-                                            
-                                            {% if cmd_to_show and cmd_to_show|trim != '' %}
-                                            <button onclick="showViewCommandModal('{{ cmd_to_show | escape }}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
+                                            {% if row[10] and row[10]|trim != '' %}
+                                            <button onclick="showViewCommandModal('{{ row[10] | escape }}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
                                             {% endif %}
                                         {% endif %}
                                         
-                                        {% set action_lower = row[7]|lower %}
-                                        {% if 'bloque' in action_lower and '[revertido]' not in action_lower %}
-                                        <button onclick="showRevertModal('{{ row[0] }}', '{{ row[4] }}')" class="btn-revert">REVERTIR</button>
+                                        {% set action_lower = row[7]|lower if row[7] else '' %}
+                                        {% if row[9] == 'APPROVED' and row[10] and row[10]|trim != '' and '[revertido]' not in action_lower %}
+                                        <button onclick="showRevertModal('{{ row[0] }}', '{{ row[4] }}', '{{ row[10] | escape }}')" class="btn-revert">REVERTIR</button>
                                         {% endif %}
                                         {% if row[8] %}
                                         <span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: {{ row[8] }}</span>
@@ -915,10 +907,13 @@
         document.getElementById('viewCommandModal').classList.remove('active');
     }
 
-    function showRevertModal(logId, ip) {
+    function showRevertModal(logId, ip, pendingCmd) {
         document.getElementById('revertLogId').value = logId;
         document.getElementById('revertIpLabel').textContent = ip;
-        document.getElementById('revertCommandContent').textContent = `sudo iptables -D INPUT -s ${ip} -j DROP`;
+        // Derive inverse command dynamically from the stored command
+        let revertCmd = (pendingCmd || '').replace(/ -A /g, ' -D ').replace(/ --append /g, ' --delete ');
+        if (!revertCmd || revertCmd === pendingCmd) revertCmd = `# REVERT: ${pendingCmd || 'N/A'}`;
+        document.getElementById('revertCommandContent').textContent = revertCmd;
         document.getElementById('revertModal').classList.add('active');
     }
     function closeRevertModal() {
@@ -1059,19 +1054,13 @@
                     if (log.status === 'PENDING') {
                         actionHtml += `<button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}', '${escapeHtml(log.rationale).replace(/'/g, "\\'")}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>`;
                     } else {
-                        let cmdToShow = log.pending_command;
-                        if (!cmdToShow || cmdToShow.trim() === '') {
-                            if (actionLower.includes('bloque')) {
-                                cmdToShow = `sudo iptables -A INPUT -s ${log.source_ip} -j DROP  # (Comando inferido)`;
-                            }
-                        }
-                        if (cmdToShow && cmdToShow.trim() !== '') {
-                            actionHtml += `<button onclick="showViewCommandModal('${escapeHtml(cmdToShow).replace(/'/g, "\\'")}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
+                        if (log.pending_command && log.pending_command.trim() !== '') {
+                            actionHtml += `<button onclick="showViewCommandModal('${escapeHtml(log.pending_command).replace(/'/g, "\\'")}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
                         }
                     }
 
-                    if (actionLower.includes('bloque') && !actionLower.includes('[revertido]')) {
-                        actionHtml += `<button onclick="showRevertModal('${log.id}', '${escapeHtml(log.source_ip)}')" class="btn-revert">REVERTIR</button>`;
+                    if (log.status === 'APPROVED' && log.pending_command && log.pending_command.trim() !== '' && !actionLower.includes('[revertido]')) {
+                        actionHtml += `<button onclick="showRevertModal('${log.id}', '${escapeHtml(log.source_ip)}', '${escapeHtml(log.pending_command).replace(/'/g, "\\'")}')" class="btn-revert">REVERTIR</button>`;
                     }
                     if (log.mitigation_status) {
                         actionHtml += `<span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: ${escapeHtml(log.mitigation_status)}</span>`;

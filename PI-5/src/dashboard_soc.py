@@ -108,7 +108,7 @@ def get_db_stats():
         c.execute("SELECT COUNT(*) FROM logs WHERE nivel_gravedad LIKE '%Critic%' OR nivel_gravedad LIKE '%Crític%'")
         criticals = c.fetchone()[0]
         
-        c.execute("SELECT COUNT(*) FROM logs WHERE accion_tomada LIKE '%bloquear%' OR accion_tomada LIKE '%Bloqueo%'")
+        c.execute("SELECT COUNT(*) FROM logs WHERE status = 'APPROVED'")
         blocks = c.fetchone()[0]
         
         c.execute("SELECT timestamp FROM logs ORDER BY id DESC LIMIT 1")
@@ -452,20 +452,24 @@ def revert_action(log_id):
     try:
         conn = _get_connection()
         c = conn.cursor()
-        c.execute("SELECT ip_origen, accion_tomada, dispositivo FROM logs WHERE id = ?", (log_id,))
+        c.execute("SELECT ip_origen, accion_tomada, dispositivo, pending_command, status FROM logs WHERE id = ?", (log_id,))
         row = c.fetchone()
         
         if not row:
             conn.close()
             return jsonify({"status": "error", "message": "Log not found"}), 404
             
-        blocked_ip, action_taken, device = row
+        blocked_ip, action_taken, device, pending_command, status = row
         
-        if "bloquear" not in str(action_taken).lower() and "bloqueo" not in str(action_taken).lower():
+        if status != 'APPROVED' or not pending_command or pending_command.strip() == '':
             conn.close()
-            return jsonify({"status": "error", "message": "Original action was not a block"}), 400
+            return jsonify({"status": "error", "message": "No approved command to revert"}), 400
             
-        revert_command = f"sudo iptables -D INPUT -s {blocked_ip} -j DROP"
+        # Derive inverse command dynamically from the stored pending_command
+        revert_command = pending_command.replace(' -A ', ' -D ').replace(' --append ', ' --delete ')
+        if revert_command == pending_command:
+            # Fallback: if no iptables pattern matched, prepend a comment for manual review
+            revert_command = f"# REVERT: {pending_command}"
         reason = f"Manual revert from dashboard for IP {blocked_ip}"
         
         topic = f"{TOPIC_ACTIONS_BASE}{device}"
@@ -479,7 +483,7 @@ def revert_action(log_id):
         mqtt_client.publish(topic, action_payload)
         
         new_action = str(action_taken) + " [REVERTIDO]"
-        c.execute("UPDATE logs SET accion_tomada = ? WHERE id = ?", (new_action, log_id))
+        c.execute("UPDATE logs SET accion_tomada = ?, status = 'REVERTED' WHERE id = ?", (new_action, log_id))
         conn.commit()
         conn.close()
         
