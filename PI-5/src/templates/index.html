@@ -277,6 +277,37 @@
         .middle-row { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
         .chart-container { width: 100%; height: 350px; }
 
+        /* --- TOPOLOGY: Radar Command Center --- */
+        .topo-wrapper { position: relative; overflow: hidden; }
+        .topo-wrapper::before {
+            content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+            background: repeating-radial-gradient(
+                circle at 50% 55%,
+                transparent 0px, transparent 56px,
+                rgba(59,130,246,0.03) 58px, transparent 60px
+            );
+        }
+        .topo-legend {
+            position: absolute; bottom: 10px; left: 10px; z-index: 10;
+            background: rgba(255,255,255,0.04); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;
+            padding: 8px 12px; display: flex; flex-direction: column; gap: 5px;
+            font-size: 0.68rem; color: var(--text-muted);
+        }
+        .topo-legend-item { display: flex; align-items: center; gap: 7px; }
+        .topo-legend-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+        .topo-legend-line { width: 18px; height: 2px; flex-shrink: 0; border-radius: 1px; }
+        .topo-stats {
+            position: absolute; top: 36px; right: 10px; z-index: 10;
+            display: flex; gap: 8px; font-size: 0.7rem; color: var(--text-muted);
+        }
+        .topo-stat {
+            display: flex; align-items: center; gap: 5px;
+            background: rgba(255,255,255,0.03); padding: 3px 9px; border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .topo-stat-val { font-family: var(--font-mono); font-weight: 600; color: var(--text-primary); }
+
         /* --- TABLE --- */
         .feed-section { flex: 1; display: flex; flex-direction: column; }
         .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -531,9 +562,30 @@
 
             <!-- MIDDLE ROW -->
             <div class="middle-row">
-                <div class="panel">
+                <div class="panel topo-wrapper">
                     <div class="panel-title">Topología de Red IoT (Edge/Fog)</div>
+                    <div class="topo-stats">
+                        <div class="topo-stat">
+                            <span class="topo-legend-dot" style="background:#10b981;"></span>
+                            <span id="topo-device-count" class="topo-stat-val">1</span> sensor
+                        </div>
+                        <div class="topo-stat">
+                            <span class="topo-legend-dot" style="background:#ef4444;"></span>
+                            <span id="topo-attacker-count" class="topo-stat-val">0</span> amenazas
+                        </div>
+                        <div class="topo-stat">
+                            <span class="topo-legend-dot" style="background:#f59e0b;"></span>
+                            <span id="topo-hit-count" class="topo-stat-val">0</span> eventos
+                        </div>
+                    </div>
                     <div id="mapChart" class="chart-container"></div>
+                    <div class="topo-legend">
+                        <div class="topo-legend-item"><span class="topo-legend-dot" style="background:#3b82f6;box-shadow:0 0 6px #3b82f6;"></span>Coordinador (PI-5)</div>
+                        <div class="topo-legend-item"><span class="topo-legend-dot" style="background:#10b981;box-shadow:0 0 6px #10b981;"></span>Sensor IoT (PI-4)</div>
+                        <div class="topo-legend-item"><span class="topo-legend-dot" style="background:#ef4444;"></span>IP Amenaza</div>
+                        <div class="topo-legend-item"><span class="topo-legend-line" style="background:linear-gradient(90deg,#06b6d4,transparent);"></span>Flujo MQTT</div>
+                        <div class="topo-legend-item"><span class="topo-legend-line" style="background:linear-gradient(90deg,#ef4444,transparent);"></span>Tráfico atacante</div>
+                    </div>
                 </div>
                 <div class="panel">
                     <div class="panel-title" style="display: flex; justify-content: space-between;">
@@ -811,38 +863,142 @@
     };
     radarChart.setOption(radarOption);
 
-    // 3. Topology Graph (Replaces World Map for real local value)
+    // 3. Topology: Radar Command Center (3 series overlay)
     var mapDom = document.getElementById('mapChart');
     var mapChart = echarts.init(mapDom, 'dark');
-    
-    var topoData = {{ topology|tojson|default('{"nodes":[], "links":[]}', true) }};
-    
-    var mapOption = {
-        backgroundColor: 'transparent',
-        tooltip: { formatter: '{b}' },
-        animationDurationUpdate: 1500,
-        animationEasingUpdate: 'quinticInOut',
-        series: [{
-            type: 'graph',
-            layout: 'force',
-            force: {
-                repulsion: 300,
-                edgeLength: [50, 150],
-                gravity: 0.1,
-                friction: 0.2
+
+    var topoData = {{ topology|tojson|default('{"nodes":[],"links":[],"flow_lines":[],"stats":{}}', true) }};
+
+    function buildTopoOption(data) {
+        var mqttFlows = [], attackFlows = [];
+        (data.flow_lines || []).forEach(function(fl) {
+            if (fl.type === 'mqtt') mqttFlows.push({ coords: fl.coords });
+            else attackFlows.push({ coords: fl.coords });
+        });
+
+        // Find PI-5 coords for effectScatter
+        var pi5 = (data.nodes || []).find(function(n) { return n.id === 'PI-5'; });
+        var pi5x = pi5 ? pi5.x : 300, pi5y = pi5 ? pi5.y : 200;
+
+        return {
+            backgroundColor: 'transparent',
+            tooltip: {
+                formatter: function(p) {
+                    if (p.dataType === 'node') return p.data.name;
+                    if (p.dataType === 'edge' && p.data.value) return p.data.source + ' → ' + p.data.target + '<br/>Eventos: ' + p.data.value;
+                    return p.name || '';
+                },
+                backgroundColor: 'rgba(15,23,42,0.9)', borderColor: 'rgba(255,255,255,0.1)',
+                textStyle: { color: '#e2e8f0', fontSize: 11 }
             },
-            roam: true,
-            label: { show: true, position: 'right', formatter: '{b}', color: '#f8fafc', fontSize: 11, fontWeight: 500 },
-            data: topoData.nodes,
-            links: topoData.links,
-            lineStyle: { opacity: 0.8, curveness: 0.2 },
-            emphasis: {
-                focus: 'adjacency',
-                lineStyle: { width: 4 }
-            }
-        }]
-    };
-    mapChart.setOption(mapOption);
+            animationDurationUpdate: 800,
+            animationEasingUpdate: 'cubicOut',
+            xAxis: { show: false, min: 0, max: 600, type: 'value' },
+            yAxis: { show: false, min: 0, max: 400, type: 'value' },
+            grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: false },
+            series: [
+                // Serie 1: Radar pulse on PI-5
+                {
+                    type: 'effectScatter',
+                    coordinateSystem: 'cartesian2d',
+                    data: [{ value: [pi5x, pi5y], name: 'PI-5 Coordinator' }],
+                    symbolSize: 20,
+                    showEffectOn: 'render',
+                    rippleEffect: {
+                        brushType: 'stroke',
+                        scale: 6,
+                        period: 4,
+                        number: 3
+                    },
+                    itemStyle: {
+                        color: 'rgba(59,130,246,0.5)',
+                        shadowBlur: 15,
+                        shadowColor: 'rgba(59,130,246,0.4)'
+                    },
+                    label: { show: false },
+                    tooltip: { show: false },
+                    zlevel: 0,
+                    silent: true
+                },
+                // Serie 2: Static graph with fixed positions
+                {
+                    type: 'graph',
+                    coordinateSystem: 'cartesian2d',
+                    layout: 'none',
+                    data: (data.nodes || []).map(function(n) {
+                        return {
+                            name: n.name, id: n.id,
+                            value: [n.x, n.y],
+                            symbolSize: n.symbolSize || 30,
+                            itemStyle: n.itemStyle || {},
+                            label: n.label || { show: true, position: 'bottom', color: '#94a3b8', fontSize: 10 },
+                            fixed: true
+                        };
+                    }),
+                    links: (data.links || []).map(function(l) {
+                        return {
+                            source: l.source, target: l.target,
+                            value: l.value,
+                            lineStyle: l.lineStyle || {}
+                        };
+                    }),
+                    roam: false,
+                    emphasis: {
+                        focus: 'adjacency',
+                        lineStyle: { width: 3 }
+                    },
+                    zlevel: 1
+                },
+                // Serie 3a: MQTT data flow particles (cyan)
+                {
+                    type: 'lines',
+                    coordinateSystem: 'cartesian2d',
+                    polyline: false,
+                    effect: {
+                        show: true,
+                        period: 3.5,
+                        trailLength: 0.35,
+                        symbol: 'circle',
+                        symbolSize: 4,
+                        color: '#06b6d4'
+                    },
+                    lineStyle: { width: 0, opacity: 0 },
+                    data: mqttFlows,
+                    zlevel: 2,
+                    silent: true
+                },
+                // Serie 3b: Attack traffic particles (red)
+                {
+                    type: 'lines',
+                    coordinateSystem: 'cartesian2d',
+                    polyline: false,
+                    effect: {
+                        show: true,
+                        period: 2.5,
+                        trailLength: 0.25,
+                        symbol: 'circle',
+                        symbolSize: 3,
+                        color: '#ef4444'
+                    },
+                    lineStyle: { width: 0, opacity: 0 },
+                    data: attackFlows,
+                    zlevel: 2,
+                    silent: true
+                }
+            ]
+        };
+    }
+
+    mapChart.setOption(buildTopoOption(topoData));
+    // Update initial stats counters
+    if (topoData.stats) {
+        var _dc = document.getElementById('topo-device-count');
+        var _ac = document.getElementById('topo-attacker-count');
+        var _hc = document.getElementById('topo-hit-count');
+        if (_dc) _dc.textContent = topoData.stats.device_count || 0;
+        if (_ac) _ac.textContent = topoData.stats.attacker_count || 0;
+        if (_hc) _hc.textContent = topoData.stats.total_hits || 0;
+    }
 
     window.addEventListener('resize', function() {
         gaugeChart.resize(); radarChart.resize(); mapChart.resize();
@@ -1091,7 +1247,15 @@
             }
 
             if (d.topology) {
-                mapChart.setOption({ series: [{ data: d.topology.nodes, links: d.topology.links }] });
+                mapChart.setOption(buildTopoOption(d.topology));
+                if (d.topology.stats) {
+                    var tdc = document.getElementById('topo-device-count');
+                    var tac = document.getElementById('topo-attacker-count');
+                    var thc = document.getElementById('topo-hit-count');
+                    if (tdc) tdc.textContent = d.topology.stats.device_count || 0;
+                    if (tac) tac.textContent = d.topology.stats.attacker_count || 0;
+                    if (thc) thc.textContent = d.topology.stats.total_hits || 0;
+                }
             }
 
             // --- SIDEBAR: System Info ---

@@ -236,53 +236,156 @@ def _serialize_logs(data):
     return result
 
 def get_topology_data():
-    """Generates a graph topology of attackers, sensors, and the coordinator from recent logs."""
+    """
+    Generates a fixed-position hub-spoke topology for the Radar Command Center.
+    - PI-5 Coordinator: always at center (300, 200)
+    - PI-4 Sensor: consolidated single node at left (100, 200)
+    - Attackers: distributed in arc to the right of PI-5
+    Returns nodes, links, flow_lines (for particle animation), and stats.
+    """
+    import math
+
+    # Fixed coordinates for the chart (600x400 canvas)
+    PI5_X, PI5_Y = 300, 200
+    PI4_X, PI4_Y = 100, 200
+    ARC_RADIUS = 160  # Distance from PI-5 for attacker nodes
+
     try:
         conn = _get_connection()
         c = conn.cursor()
         c.execute("""
-            SELECT dispositivo, ip_origen, COUNT(*) as weight
+            SELECT ip_origen, COUNT(*) as weight
             FROM logs
             WHERE ip_origen IS NOT NULL AND dispositivo IS NOT NULL
-            GROUP BY dispositivo, ip_origen
+            GROUP BY ip_origen
             ORDER BY weight DESC
-            LIMIT 15
+            LIMIT 10
         """)
         rows = c.fetchall()
         conn.close()
 
         nodes = []
         links = []
-        
-        # Base node: PI-5 Coordinator (Category 0)
-        nodes.append({"id": "PI-5", "name": "PI-5 Coordinator", "category": 0, "symbolSize": 45, "itemStyle": {"color": "#3b82f6", "shadowBlur": 15, "shadowColor": "#3b82f6"}})
-        
-        devices = set()
-        attackers = set()
-        
-        for device, ip, weight in rows:
-            if device not in devices:
-                devices.add(device)
-                nodes.append({"id": device, "name": device, "category": 1, "symbolSize": 30, "itemStyle": {"color": "#10b981", "shadowBlur": 10, "shadowColor": "#10b981"}})
-                # Link device to coordinator
-                links.append({"source": device, "target": "PI-5", "lineStyle": {"width": 2, "color": "rgba(16, 185, 129, 0.4)", "type": "dashed"}})
-            
-            if ip not in attackers:
-                attackers.add(ip)
-                nodes.append({"id": ip, "name": ip, "category": 2, "symbolSize": 20, "itemStyle": {"color": "#ef4444"}})
-            
-            # Link attacker to device
-            links.append({"source": ip, "target": device, "value": weight, "lineStyle": {"width": max(1.5, min(weight/2, 4)), "color": "rgba(239, 68, 68, 0.6)", "curveness": 0.2}})
-            
-        # If no logs, just show coordinator
-        if not rows:
-            nodes.append({"id": "PI-4 (Demo)", "name": "PI-4 Sensor", "category": 1, "symbolSize": 30, "itemStyle": {"color": "#10b981"}})
-            links.append({"source": "PI-4 (Demo)", "target": "PI-5", "lineStyle": {"width": 2, "color": "rgba(16, 185, 129, 0.4)", "type": "dashed"}})
-            
-        return {"nodes": nodes, "links": links}
+        flow_lines = []
+        total_hits = 0
+
+        # --- PI-5 Coordinator (hub) ---
+        nodes.append({
+            "id": "PI-5", "name": "PI-5 Coordinator",
+            "x": PI5_X, "y": PI5_Y,
+            "symbolSize": 50, "fixed": True,
+            "itemStyle": {
+                "color": "#3b82f6",
+                "shadowBlur": 25,
+                "shadowColor": "rgba(59,130,246,0.6)"
+            },
+            "label": {"show": True, "position": "bottom", "color": "#94a3b8",
+                      "fontSize": 11, "fontWeight": 600,
+                      "formatter": "PI-5\nCoordinator"}
+        })
+
+        # --- PI-4 Sensor (consolidated single node) ---
+        nodes.append({
+            "id": "PI-4", "name": "PI-4 Sensor",
+            "x": PI4_X, "y": PI4_Y,
+            "symbolSize": 35, "fixed": True,
+            "itemStyle": {
+                "color": "#10b981",
+                "shadowBlur": 15,
+                "shadowColor": "rgba(16,185,129,0.5)"
+            },
+            "label": {"show": True, "position": "bottom", "color": "#94a3b8",
+                      "fontSize": 11, "fontWeight": 600,
+                      "formatter": "PI-4\nSensor"}
+        })
+
+        # --- Link PI-4 ↔ PI-5 (MQTT data flow) ---
+        links.append({
+            "source": "PI-4", "target": "PI-5",
+            "lineStyle": {
+                "width": 2, "color": "rgba(6,182,212,0.3)",
+                "type": "dashed", "curveness": 0
+            }
+        })
+        flow_lines.append({
+            "coords": [[PI4_X, PI4_Y], [PI5_X, PI5_Y]],
+            "type": "mqtt"
+        })
+
+        # --- Attacker nodes from logs (arc to the right of PI-5) ---
+        attacker_ips = []
+        for ip, weight in rows:
+            attacker_ips.append((ip, weight))
+            total_hits += weight
+
+        num_attackers = len(attacker_ips)
+        if num_attackers > 0:
+            angle_step = math.pi / (num_attackers + 1)
+            for i, (ip, weight) in enumerate(attacker_ips):
+                angle = -math.pi / 2 + angle_step * (i + 1)
+                ax = PI5_X + ARC_RADIUS * math.cos(angle)
+                ay = PI5_Y + ARC_RADIUS * math.sin(angle)
+
+                # Node size proportional to hit count (min 14, max 28)
+                sz = max(14, min(int(12 + weight * 2), 28))
+
+                nodes.append({
+                    "id": ip, "name": ip,
+                    "x": round(ax, 1), "y": round(ay, 1),
+                    "symbolSize": sz, "fixed": True,
+                    "itemStyle": {
+                        "color": "#ef4444",
+                        "shadowBlur": 8,
+                        "shadowColor": "rgba(239,68,68,0.4)"
+                    },
+                    "label": {"show": True, "position": "right",
+                              "color": "#f87171", "fontSize": 9,
+                              "formatter": ip}
+                })
+
+                # Link: attacker → PI-4 (attack traffic)
+                link_w = max(1.5, min(weight / 2, 4))
+                links.append({
+                    "source": ip, "target": "PI-4",
+                    "value": weight,
+                    "lineStyle": {
+                        "width": link_w,
+                        "color": "rgba(239,68,68,0.35)",
+                        "curveness": 0.15
+                    }
+                })
+                flow_lines.append({
+                    "coords": [[round(ax, 1), round(ay, 1)], [PI4_X, PI4_Y]],
+                    "type": "attack"
+                })
+
+        return {
+            "nodes": nodes,
+            "links": links,
+            "flow_lines": flow_lines,
+            "stats": {
+                "device_count": 1,  # PI-4 is always the single sensor
+                "attacker_count": num_attackers,
+                "total_hits": total_hits
+            }
+        }
     except Exception as e:
         logger.error(f"[ERROR] Topology query failed: {e}")
-        return {"nodes": [{"id": "PI-5", "name": "PI-5 Coordinator", "category": 0, "symbolSize": 45}], "links": []}
+        return {
+            "nodes": [
+                {"id": "PI-5", "name": "PI-5 Coordinator", "x": PI5_X, "y": PI5_Y,
+                 "symbolSize": 50, "fixed": True,
+                 "itemStyle": {"color": "#3b82f6", "shadowBlur": 25, "shadowColor": "rgba(59,130,246,0.6)"},
+                 "label": {"show": True, "position": "bottom", "color": "#94a3b8", "fontSize": 11, "fontWeight": 600, "formatter": "PI-5\nCoordinator"}},
+                {"id": "PI-4", "name": "PI-4 Sensor", "x": PI4_X, "y": PI4_Y,
+                 "symbolSize": 35, "fixed": True,
+                 "itemStyle": {"color": "#10b981", "shadowBlur": 15, "shadowColor": "rgba(16,185,129,0.5)"},
+                 "label": {"show": True, "position": "bottom", "color": "#94a3b8", "fontSize": 11, "fontWeight": 600, "formatter": "PI-4\nSensor"}}
+            ],
+            "links": [{"source": "PI-4", "target": "PI-5", "lineStyle": {"width": 2, "color": "rgba(6,182,212,0.3)", "type": "dashed"}}],
+            "flow_lines": [{"coords": [[PI4_X, PI4_Y], [PI5_X, PI5_Y]], "type": "mqtt"}],
+            "stats": {"device_count": 1, "attacker_count": 0, "total_hits": 0}
+        }
 
 # ---------------------------------------------------------------------------
 # Routes
