@@ -263,13 +263,50 @@ function view_logs() {
     fi
 }
 
+function purge_logs_and_records() {
+    echo -e "${YELLOW}[!] Borrando logs y registros (no se tocan contenedores, certificados ni '.env')...${NC}"
+
+    # Detectar ruta base (modo local vs. GitOps clonado)
+    local base_dir=""
+    if [ -f "./docker-compose.yml" ]; then
+        base_dir="."
+    elif [ -d "$CLONE_DIR/PI-5" ]; then
+        base_dir="$CLONE_DIR/PI-5"
+    fi
+
+    if [ -n "$base_dir" ]; then
+        echo -e "${BLUE}[INFO] Vaciando ficheros de log del host...${NC}"
+        : > "$base_dir/coordinator_soc.log" 2>/dev/null || true
+        : > "$base_dir/dashboard_soc.log" 2>/dev/null || true
+
+        echo -e "${BLUE}[INFO] Eliminando bases de datos locales (soc_alerts.db, data/soc_data.db)...${NC}"
+        rm -f "$base_dir/soc_alerts.db"
+        rm -f "$base_dir/data/soc_data.db"
+
+        # Si el contenedor está corriendo, también limpia la BD dentro del volumen persistente
+        if docker ps --format '{{.Names}}' | grep -q '^soc-coordinator-pi5$'; then
+            echo -e "${BLUE}[INFO] Limpiando BD dentro del volumen persistente del contenedor...${NC}"
+            docker exec soc-coordinator-pi5 sh -c 'rm -f /app/data/*.db' 2>/dev/null || true
+        else
+            echo -e "${BLUE}[INFO] Eliminando volumen Docker de la BD ('soc_pi5_database_persistent')...${NC}"
+            docker volume rm soc_pi5_database_persistent 2>/dev/null || true
+        fi
+    else
+        echo -e "${RED}[ERROR] No se encuentra el despliegue (docker-compose.yml).${NC}"
+    fi
+
+    echo -e "${GREEN}[SUCCESS] Logs y registros eliminados.${NC}"
+    read -n 1 -s -r -p "Presiona cualquier tecla para volver al menú..."
+}
+
 function uninstall_soc() {
     echo -e "${GREEN}[*] Opción 5: Desinstalar SOC${NC}"
     echo -e "${YELLOW}ADVERTENCIA: Estás a punto de desinstalar el sistema.${NC}"
     echo "1) Desinstalación completa (Borrará contenedores, imágenes, volúmenes, '.env' y certificados)"
     echo "2) Desinstalación parcial (Borrará contenedores e imágenes, mantendrá logs, '.env' y certificados)"
-    echo "3) Cancelar"
-    read -rp "Selecciona una opción (1-3): " uninst_opt
+    echo "3) Borrar solo logs y registros (mantendrá contenedores, '.env' y certificados)"
+    echo "4) Cancelar"
+    read -rp "Selecciona una opción (1-4): " uninst_opt
 
     case $uninst_opt in
         1)
@@ -298,7 +335,10 @@ function uninstall_soc() {
             echo -e "${GREEN}[SUCCESS] Desinstalación parcial finalizada.${NC}"
             read -n 1 -s -r -p "Presiona cualquier tecla para volver al menú..."
             ;;
-        3|*)
+        3)
+            purge_logs_and_records
+            ;;
+        4|*)
             echo -e "${BLUE}Operación cancelada.${NC}"
             sleep 1
             ;;
