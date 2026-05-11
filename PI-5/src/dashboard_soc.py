@@ -108,12 +108,19 @@ def get_db_stats():
         c.execute("SELECT COUNT(*) FROM logs WHERE nivel_gravedad LIKE '%Critic%' OR nivel_gravedad LIKE '%Crític%'")
         criticals = c.fetchone()[0]
         
-        c.execute("SELECT COUNT(*) FROM logs WHERE status = 'APPROVED'")
-        blocks = c.fetchone()[0]
+        try:
+            c.execute("SELECT COUNT(*) FROM logs WHERE status = 'APPROVED'")
+            blocks = c.fetchone()[0]
+        except sqlite3.OperationalError:
+            c.execute("SELECT COUNT(*) FROM logs WHERE accion_tomada LIKE '%[EJECUTADO]%' OR accion_tomada LIKE '%Bloqueo%'")
+            blocks = c.fetchone()[0]
         
-        c.execute("SELECT timestamp FROM logs ORDER BY id DESC LIMIT 1")
-        last = c.fetchone()
-        last_time = last[0] if last else "No activity"
+        try:
+            c.execute("SELECT timestamp FROM logs ORDER BY id DESC LIMIT 1")
+            last = c.fetchone()
+            last_time = last[0] if last else "No activity"
+        except sqlite3.OperationalError:
+            last_time = "No activity"
         
         conn.close()
         return total, criticals, blocks, last_time

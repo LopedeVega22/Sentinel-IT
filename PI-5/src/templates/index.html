@@ -448,7 +448,7 @@
                     <div class="node-stat">
                         <div class="node-stat-header">
                             <span>CPU</span>
-                            <span class="stat-val {{ 'na' if sys_info.cpu == 'N/A' else ('critical' if sys_info.cpu|float > 80 else ('warning' if sys_info.cpu|float > 50 else 'normal')) }}" id="stat-cpu">{{ sys_info.cpu|default('N/A', true) }}{% if sys_info.cpu != 'N/A' %}%{% endif %}</span>
+                            <span class="stat-val {{ 'na' if sys_info.cpu in ['N/A', '', None] else ('critical' if sys_info.cpu|float > 80 else ('warning' if sys_info.cpu|float > 50 else 'normal')) }}" id="stat-cpu">{{ sys_info.cpu|default('N/A', true) }}{% if sys_info.cpu and sys_info.cpu != 'N/A' %}%{% endif %}</span>
                         </div>
                         <div class="node-stat-bar-bg"><div class="node-stat-bar cpu-bar" id="bar-cpu" style="width: {{ '0' if sys_info.cpu == 'N/A' else sys_info.cpu }}%;"></div></div>
                     </div>
@@ -456,7 +456,7 @@
                     <div class="node-stat">
                         <div class="node-stat-header">
                             <span>RAM</span>
-                            <span class="stat-val {{ 'na' if sys_info.ram == 'N/A' else ('critical' if sys_info.ram|float > 80 else ('warning' if sys_info.ram|float > 50 else 'normal')) }}" id="stat-ram">{{ sys_info.ram|default('N/A', true) }}{% if sys_info.ram != 'N/A' %}%{% endif %}</span>
+                            <span class="stat-val {{ 'na' if sys_info.ram in ['N/A', '', None] else ('critical' if sys_info.ram|float > 80 else ('warning' if sys_info.ram|float > 50 else 'normal')) }}" id="stat-ram">{{ sys_info.ram|default('N/A', true) }}{% if sys_info.ram and sys_info.ram != 'N/A' %}%{% endif %}</span>
                         </div>
                         <div class="node-stat-bar-bg"><div class="node-stat-bar ram-bar" id="bar-ram" style="width: {{ '0' if sys_info.ram == 'N/A' else sys_info.ram }}%;"></div></div>
                     </div>
@@ -632,7 +632,7 @@
                         <tbody id="feed-body">
                             {% for row in data %}
                             <tr>
-                                <td class="cell-time">{{ row[8] }}</td>
+                                <td class="cell-time">{{ row[12] }}</td>
                                 <td>
                                     {% set severity = row[5]|default('')|lower %}
                                     {% if "critica" in severity or "crítica" in severity or "critical" in severity %}
