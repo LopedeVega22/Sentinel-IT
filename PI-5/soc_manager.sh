@@ -275,6 +275,13 @@ function purge_logs_and_records() {
     fi
 
     if [ -n "$base_dir" ]; then
+        local was_running=false
+        if docker ps --format '{{.Names}}' | grep -q '^soc-coordinator-pi5$'; then
+            was_running=true
+            echo -e "${BLUE}[INFO] Deteniendo contenedor para liberar handles de la BD...${NC}"
+            (cd "$base_dir" && docker compose stop soc-coordinator-pi5 >/dev/null 2>&1)
+        fi
+
         echo -e "${BLUE}[INFO] Vaciando ficheros de log del host...${NC}"
         : > "$base_dir/coordinator_soc.log" 2>/dev/null || true
         : > "$base_dir/dashboard_soc.log" 2>/dev/null || true
@@ -283,13 +290,12 @@ function purge_logs_and_records() {
         rm -f "$base_dir/soc_alerts.db"
         rm -f "$base_dir/data/soc_data.db"
 
-        # Si el contenedor está corriendo, también limpia la BD dentro del volumen persistente
-        if docker ps --format '{{.Names}}' | grep -q '^soc-coordinator-pi5$'; then
-            echo -e "${BLUE}[INFO] Limpiando BD dentro del volumen persistente del contenedor...${NC}"
-            docker exec soc-coordinator-pi5 sh -c 'rm -f /app/data/*.db' 2>/dev/null || true
-        else
-            echo -e "${BLUE}[INFO] Eliminando volumen Docker de la BD ('soc_pi5_database_persistent')...${NC}"
-            docker volume rm soc_pi5_database_persistent 2>/dev/null || true
+        echo -e "${BLUE}[INFO] Eliminando volumen Docker de la BD ('soc_pi5_database_persistent')...${NC}"
+        docker volume rm soc_pi5_database_persistent >/dev/null 2>&1 || true
+
+        if [ "$was_running" = true ]; then
+            echo -e "${BLUE}[INFO] Arrancando contenedor de nuevo (recreará el esquema de la BD)...${NC}"
+            (cd "$base_dir" && docker compose up -d soc-coordinator-pi5 >/dev/null 2>&1)
         fi
     else
         echo -e "${RED}[ERROR] No se encuentra el despliegue (docker-compose.yml).${NC}"
