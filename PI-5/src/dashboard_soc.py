@@ -625,7 +625,10 @@ def revert_action(log_id):
         mqtt_client.publish(topic, action_payload)
         
         new_action = str(action_taken) + " [REVERTIDO]"
-        c.execute("UPDATE logs SET accion_tomada = ?, status = 'REVERTED' WHERE id = ?", (new_action, log_id))
+        try:
+            c.execute("UPDATE logs SET accion_tomada = ?, status = 'REVERTED' WHERE id = ?", (new_action, log_id))
+        except sqlite3.OperationalError:
+            c.execute("UPDATE logs SET accion_tomada = ? WHERE id = ?", (new_action, log_id))
         conn.commit()
         conn.close()
         
