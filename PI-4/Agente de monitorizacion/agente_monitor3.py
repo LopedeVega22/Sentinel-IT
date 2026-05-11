@@ -4,6 +4,7 @@ import json
 import subprocess
 import select
 import threading
+import shlex
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
  
 # ==============================================================================
@@ -300,8 +301,93 @@ def hilo_monitor_web():
 # ==============================================================================
 # BUCLE PRINCIPAL DE MONITORIZACIÓN (SSH, FTP, Apache)
 # ==============================================================================
+def ejecutar_comando_seguro(comando):
+    """Ejecuta un comando si pasa la lista blanca básica.
+    Devuelve dict con exitcode, stdout, stderr, timed_out, allowed.
+    """
+    # Lista blanca: comandos permitidos (binarios o palabras clave)
+    WHITELIST = ["iptables", "php", "ufw", "systemctl", "ip", "whoami", "date", "uptime", "df"]
+
+    # Verificar si alguno de los tokens del comando está en la whitelist
+    try:
+        tokens = shlex.split(comando)
+    except Exception:
+        tokens = comando.split()
+
+    allowed = any(tok in WHITELIST or any(tok.startswith(w) for w in WHITELIST) for tok in tokens)
+    if not allowed:
+        return {"allowed": False, "error": "command_not_whitelisted"}
+
+    try:
+        proc = subprocess.run(comando, shell=True, capture_output=True, text=True, timeout=30)
+        return {
+            "allowed": True,
+            "exitcode": proc.returncode,
+            "stdout": proc.stdout[:4000],
+            "stderr": proc.stderr[:4000],
+            "timed_out": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {"allowed": True, "error": "timeout", "timed_out": True}
+    except Exception as e:
+        return {"allowed": True, "error": str(e)}
+
+def on_message_callback(client, userdata, message):
+    """Callback para recibir y procesar comandos desde seguridad/acciones/#"""
+    try:
+        try:
+            payload = json.loads(message.payload)
+        except Exception:
+            try:
+                payload = json.loads(message.payload.decode("utf-8"))
+            except Exception:
+                payload = {"raw": str(message.payload)}
+
+        print(f"[COMANDO] Recibido en {message.topic}: {payload}")
+        
+        action = payload.get("accion") or payload.get("action")
+        
+        # Si la acción es ejecutar comando, procesarlo
+        if action == "ejecutar_comando" or action == "execute_command":
+            comando = payload.get("comando") or payload.get("command")
+            motivo = payload.get("motivo") or payload.get("reason")
+            
+            if not comando:
+                print("[COMANDO] Error: sin field 'comando'")
+                return
+
+            print(f"[COMANDO] Ejecutando: {comando}")
+            resultado = ejecutar_comando_seguro(comando)
+            
+            resultado_payload = {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "sensor": CLIENT_ID,
+                "tipo": "RESPUESTA_COMANDO",
+                "comando": comando,
+                "motivo": motivo,
+                "resultado": resultado,
+            }
+            # Publicar en topic de respuestas
+            publicar(TOPIC_TELEMETRIA, resultado_payload)
+            print(f"[COMANDO] Respuesta publicada: {resultado}")
+    except Exception as e:
+        print(f"[COMANDO ERROR] {e}")
+
+def hilo_escucha_comandos():
+    """Hilo dedicado a suscribirse y escuchar comandos en seguridad/acciones/#"""
+    try:
+        print("[COMANDOS] Hilo iniciado - suscribiendo a seguridad/acciones/#")
+        mqtt_client.subscribe("seguridad/acciones/#", 1, callback=on_message_callback)
+        print("[COMANDOS] Suscrito a seguridad/acciones/#")
+    except Exception as e:
+        print(f"[COMANDOS ERROR] Fallo al suscribirse: {e}")
+
 def monitorizar():
     """Bucle principal: lee logs de sistema y publica alertas o acumula para resumen."""
+ 
+    # Hilo de escucha de comandos
+    hilo_cmd = threading.Thread(target=hilo_escucha_comandos, daemon=True)
+    hilo_cmd.start()
  
     # Hilo periódico de resúmenes
     hilo_periodico = threading.Thread(target=hilo_envio_periodico, daemon=True)
