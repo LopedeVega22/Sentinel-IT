@@ -1110,11 +1110,17 @@
     }
 
     function openRawLogModal(logJson) {
-        try {
-            const parsed = JSON.parse(logJson);
-            document.getElementById('rawLogContent').innerHTML = syntaxHighlight(parsed);
-        } catch(e) {
-            document.getElementById('rawLogContent').textContent = logJson;
+        const el = document.getElementById('rawLogContent');
+        if (!logJson || logJson.trim() === '' || logJson.trim() === '{}' || logJson.trim() === '{') {
+            el.innerHTML = '<span style="color: var(--text-muted); font-style: italic;">⚠ Log original no disponible o vacío.\nEl agente IA no almacenó el log completo para este evento.</span>';
+        } else {
+            try {
+                const parsed = JSON.parse(logJson);
+                el.innerHTML = syntaxHighlight(parsed);
+            } catch(e) {
+                // Not valid JSON — show as plain text (e.g. SSH log lines)
+                el.textContent = logJson;
+            }
         }
         document.getElementById('rawLogModal').classList.add('active');
     }

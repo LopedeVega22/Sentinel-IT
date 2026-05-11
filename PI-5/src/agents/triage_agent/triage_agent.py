@@ -71,7 +71,7 @@ Logs will arrive as plain text (SSH) or structured JSON (Web events, telemetry).
 2. **[SUSPICIOUS OR CONFIRMED ATTACK]**:
    - Clear malicious intent, unauthorized access attempts, active exploits (SQLi, XSS, Brute force).
    - **Action**: 
-     - 1. **Mandatory**: Use `register_alert` to document the threat EXACTLY ONCE.
+     - 1. **Mandatory**: Use `register_alert` to document the threat EXACTLY ONCE. CRITICAL: For the `raw_log` parameter, you MUST pass the COMPLETE, EXACT original log text you received as input. Never truncate, summarize, or leave it empty — the dashboard displays this verbatim.
      - 2. **Diagnosis (Optional)**: If you need to check the firewall or process list, use `execute_diagnostic_command` (Read-only commands or allowed sudo like `sudo iptables -L`).
      - 3. **Mitigation**: Use `request_mitigation_approval` to propose a destructive/mutating Bash command (like `sudo iptables -A...` or `kill -9...`). Explain your reasoning clearly in the rationale. DO NOT try to use diagnostic commands for destructive actions.
 

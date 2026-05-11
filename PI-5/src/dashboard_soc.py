@@ -625,14 +625,31 @@ def revert_action(log_id):
         mqtt_client.publish(topic, action_payload)
         
         new_action = str(action_taken) + " [REVERTIDO]"
-        try:
-            c.execute("UPDATE logs SET accion_tomada = ?, status = 'REVERTED' WHERE id = ?", (new_action, log_id))
-        except sqlite3.OperationalError:
-            c.execute("UPDATE logs SET accion_tomada = ? WHERE id = ?", (new_action, log_id))
-        conn.commit()
+        
+        # Retry logic for DB updates to handle "database is locked"
+        import time
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                try:
+                    c.execute("UPDATE logs SET accion_tomada = ?, status = 'REVERTED' WHERE id = ?", (new_action, log_id))
+                except sqlite3.OperationalError as op_err:
+                    if "no such column" in str(op_err).lower():
+                        c.execute("UPDATE logs SET accion_tomada = ? WHERE id = ?", (new_action, log_id))
+                    else:
+                        raise op_err
+                conn.commit()
+                break
+            except sqlite3.OperationalError as e:
+                if "locked" in str(e).lower() and attempt < max_retries - 1:
+                    time.sleep(1)
+                else:
+                    conn.rollback()
+                    raise e
+                    
         conn.close()
         
-        return redirect(url_for('index'))
+        return jsonify({"status": "success", "message": "Revert command sent"})
         
     except Exception as e:
         logger.error(f"[ERROR] Failed to revert action {log_id}: {e}")
