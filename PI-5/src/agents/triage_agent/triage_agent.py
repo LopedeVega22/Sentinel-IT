@@ -35,7 +35,11 @@ REC_PATH = os.path.join(BASE_DIR, 'recommendations.json')
 try:
     with open(REC_PATH, 'r') as f:
         recommendations_data = json.load(f)
-    recommendations_str = json.dumps(recommendations_data, indent=2)
+    recs_list = []
+    for item in recommendations_data.get("recomendaciones_mitigacion", []):
+        cmd = item.get("comando", "").replace("{", "<").replace("}", ">")
+        recs_list.append(f"- Ataque: {item.get('ataque', '')}\n  Comando: {cmd}\n  Explicacion: {item.get('explicacion', '')}")
+    recommendations_str = "\n\n".join(recs_list)
 except Exception as e:
     print(f"[WARNING] No se pudo cargar recommendations.json: {e}")
     recommendations_str = "No hay recomendaciones cargadas."
@@ -48,10 +52,9 @@ triage_agent = LlmAgent(
     instruction=f"""You are an advanced 'Level 1 SOC Triage Agent' responsible for analyzing security logs and mitigating threats.
 
 ### IOT ENVIRONMENT & RECOMMENDATIONS
-Below is the knowledge base of recommended mitigation commands for the PI-4. You can use these exact commands, modify them (e.g. replacing {{IP}} or flags), or invent entirely new Bash commands based on the context.
-```json
+Below is the knowledge base of recommended mitigation commands for the PI-4. You can use these exact commands, modify them (e.g. replacing <IP> or flags), or invent entirely new Bash commands based on the context.
+
 {recommendations_str}
-```
 
 ### FORENSIC CHAIN-OF-THOUGHT (HOW TO THINK):
 Logs will arrive as plain text (SSH) or structured JSON (Web events, telemetry). The logs are delivered in near real-time, meaning the threat is active NOW.

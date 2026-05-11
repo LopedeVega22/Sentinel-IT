@@ -1,24 +1,14 @@
 {
   "recomendaciones_mitigacion": [
     {
-      "ataque": "Fuerza Bruta SSH",
-      "comando": "sudo iptables -A INPUT -p tcp --dport 22 -s {IP} -j DROP",
-      "explicacion": "Bloquea todo el trafico entrante por el puerto 22 desde la IP atacante."
+      "ataque": "Auditoría de Sesiones Web",
+      "comando": "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
+      "explicacion": "Lista todas las sesiones web activas actualmente en la base de datos del servidor, mostrando detalles como usuario, email, IP de origen y última actividad."
     },
     {
-      "ataque": "Ataque Web (XSS/SQLi) en NGINX",
-      "comando": "sudo iptables -A INPUT -p tcp --match multiport --dports 80,443 -s {IP} -j DROP",
-      "explicacion": "Bloquea trafico HTTP y HTTPS desde la IP atacante, evitando que siga interactuando con la web."
-    },
-    {
-      "ataque": "Escaneo de Puertos Masivo",
-      "comando": "sudo iptables -A INPUT -s {IP} -j DROP",
-      "explicacion": "Bloqueo total de la IP a nivel de red para todos los puertos."
-    },
-    {
-      "ataque": "Proceso Malicioso Consumiendo CPU",
-      "comando": "sudo kill -9 $(pgrep -f {nombre_proceso})",
-      "explicacion": "Termina de forma forzada cualquier proceso que coincida con el nombre dado."
+      "ataque": "Compromiso de Cuenta Web",
+      "comando": "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre \"{nombre_usuario}\"",
+      "explicacion": "Cierra de forma forzada y revoca todas las sesiones web activas asociadas al nombre de usuario indicado, destruyendo la sesión PHP y eliminando el registro para expulsar al atacante."
     }
   ]
 }
