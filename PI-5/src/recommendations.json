@@ -1,0 +1,14 @@
+{
+  "recomendaciones_mitigacion": [
+    {
+      "ataque": "Auditoría de Sesiones Web",
+      "comando": "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
+      "explicacion": "Lista todas las sesiones web activas actualmente en la base de datos del servidor, mostrando detalles como usuario, email, IP de origen y última actividad."
+    },
+    {
+      "ataque": "Compromiso de Cuenta Web",
+      "comando": "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre \"{nombre_usuario}\"",
+      "explicacion": "Cierra de forma forzada y revoca todas las sesiones web activas asociadas al nombre de usuario indicado, destruyendo la sesión PHP y eliminando el registro para expulsar al atacante."
+    }
+  ]
+}

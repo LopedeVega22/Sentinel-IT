@@ -1,0 +1,44 @@
+# ==============================================================================
+# Orquestación Docker Compose - NODO COORDINADOR IA (Raspberry Pi 5)
+# ==============================================================================
+# Ejecutar desde la carpeta PI-5/ con:
+#   docker compose up -d --build
+
+services:
+  soc-coordinator-pi5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: soc-coordinator-pi5
+    restart: unless-stopped
+    ports:
+      - "5000:5000"   # Dashboard Web Flask
+    volumes:
+      # Base de datos persistente: sobrevive a reinicios del contenedor
+      - soc_data_volume:/app/data
+      # Logs persistentes en el host para diagnóstico
+      - ./coordinator_soc.log:/app/coordinator_soc.log
+      - ./dashboard_soc.log:/app/dashboard_soc.log
+      # Credenciales seguras inyectadas desde la jaula local (nunca en GitHub)
+      - ./certificados:/app/certificados:ro
+      - ./.env:/app/.env:ro
+    environment:
+      - TZ=Europe/Madrid
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+
+  local-ai-engine:
+    image: ollama/ollama:latest
+    container_name: local-ai-engine
+    profiles:
+      - local-ai
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data_volume:/root/.ollama
+
+volumes:
+  soc_data_volume:
+    name: "soc_pi5_database_persistent"
+  ollama_data_volume:
+    name: "soc_pi5_ollama_persistent"
