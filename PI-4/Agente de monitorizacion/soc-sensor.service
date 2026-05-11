@@ -15,7 +15,7 @@ User=root
 WorkingDirectory=/home/lopex/pi4-felix/
 
 # Usar el Python del entorno virtual, no el del sistema
-ExecStart=/home/lopex/pi4-felix/env/bin/python /home/lopex/pi4-felix/agente_monitor3.py
+ExecStart=/usr/bin/python3 agente_monitor3.py
 
 # Reiniciar solo si el script falla con error (no si lo paras tú con systemctl stop)
 Restart=on-failure
