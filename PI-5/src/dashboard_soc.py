@@ -580,24 +580,38 @@ def revert_action(log_id):
     try:
         conn = _get_connection()
         c = conn.cursor()
-        c.execute("SELECT ip_origen, accion_tomada, dispositivo, pending_command, status FROM logs WHERE id = ?", (log_id,))
-        row = c.fetchone()
+        try:
+            c.execute("SELECT ip_origen, accion_tomada, dispositivo, pending_command, status FROM logs WHERE id = ?", (log_id,))
+            row = c.fetchone()
+        except sqlite3.OperationalError:
+            c.execute("SELECT ip_origen, accion_tomada, dispositivo FROM logs WHERE id = ?", (log_id,))
+            row_partial = c.fetchone()
+            if row_partial:
+                row = (row_partial[0], row_partial[1], row_partial[2], "", "LOGGED")
+            else:
+                row = None
         
         if not row:
             conn.close()
             return jsonify({"status": "error", "message": "Log not found"}), 404
             
         blocked_ip, action_taken, device, pending_command, status = row
+        action_lower = str(action_taken).lower()
+        is_blocked = (status == 'APPROVED') or ('bloque' in action_lower)
         
-        if status != 'APPROVED' or not pending_command or pending_command.strip() == '':
+        if not is_blocked:
             conn.close()
-            return jsonify({"status": "error", "message": "No approved command to revert"}), 400
+            return jsonify({"status": "error", "message": "No block action to revert"}), 400
             
         # Derive inverse command dynamically from the stored pending_command
-        revert_command = pending_command.replace(' -A ', ' -D ').replace(' --append ', ' --delete ')
-        if revert_command == pending_command:
-            # Fallback: if no iptables pattern matched, prepend a comment for manual review
-            revert_command = f"# REVERT: {pending_command}"
+        if pending_command and pending_command.strip() != '':
+            revert_command = pending_command.replace(' -A ', ' -D ').replace(' --append ', ' --delete ')
+            if revert_command == pending_command:
+                # Fallback: if no iptables pattern matched, prepend a comment for manual review
+                revert_command = f"# REVERT: {pending_command}"
+        else:
+            revert_command = f"sudo iptables -D INPUT -s {blocked_ip} -j DROP"
+            
         reason = f"Manual revert from dashboard for IP {blocked_ip}"
         
         topic = f"{TOPIC_ACTIONS_BASE}{device}"
