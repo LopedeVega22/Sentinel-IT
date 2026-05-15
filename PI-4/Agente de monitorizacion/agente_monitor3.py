@@ -32,10 +32,10 @@ CERT_PATH = "/home/lopex/pi4-felix/Pi4-Felix.cert.pem"
 KEY_PATH  = "/home/lopex/pi4-felix/Pi4-Felix.private.key"
  
 # Topics
-TOPIC_EVENTOS    = "seguridad/eventos"
-TOPIC_TELEMETRIA = "seguridad/telemetria"
-TOPIC_RESPUESTAS = "seguridad/respuestas"
-TOPIC_ACCIONES   = "seguridad/acciones/#"
+TOPIC_EVENTOS    = "seguridad/Pi4-Felix/evento"
+TOPIC_TELEMETRIA = "seguridad/Pi4-Felix/telemetria"
+TOPIC_RESPUESTAS = "seguridad/Pi4-Felix/respuesta"
+TOPIC_ACCIONES   = "seguridad/Pi4-Felix/comando"
  
 # Logs del sistema
 LOG_FTP    = "/var/log/vsftpd.log"
@@ -80,7 +80,7 @@ PATRONES_XSS  = ["<script", "javascript:", "onerror=", "onload=", "<br>", "<b>",
 # ==============================================================================
 def iniciar_mqtt() -> AWSIoTMQTTClient:
     logger.info("Conectando a AWS IoT Core...")
-    cliente = AWSIoTMQTTClient(CLIENT_ID)
+    cliente = AWSIoTMQTTClient(CLIENT_ID, cleanSession=True)
     cliente.configureEndpoint(ENDPOINT, 8883)
     cliente.configureCredentials(CA_PATH, KEY_PATH, CERT_PATH)
     cliente.configureAutoReconnectBackoffTime(1, 32, 20)
@@ -142,14 +142,16 @@ def ejecutar_comando_seguro(comando: str) -> dict:
 # NO manipular el cliente interno de paho; solo usar subscribe(callback=...).
 # ==============================================================================
 def on_accion(client, userdata, message):
-    """Procesa mensajes recibidos en seguridad/acciones/#"""
+    """Procesa mensajes recibidos en seguridad/Pi4-Felix/comando"""
+    import uuid
+    exec_id = uuid.uuid4().hex[:6]
     try:
         raw = message.payload
         payload = json.loads(raw if isinstance(raw, str) else raw.decode("utf-8"))
     except Exception:
         payload = {"raw": str(message.payload)}
  
-    logger.info(f"[ACCION] topic={message.topic} payload={payload}")
+    logger.info(f"[ACCION:{exec_id}] topic={message.topic} payload={payload}")
  
     if not isinstance(payload, dict):
         logger.warning("Payload no es un dict, ignorando.")
@@ -448,9 +450,12 @@ def monitorizar():
         logger.info("Agente detenido por el usuario.")
     finally:
         try:
+            # Esperar a que la cola de publicación se vacíe antes de desconectar
+            _publish_queue.join()
             mqtt_client.disconnect()
-        except Exception:
-            pass
+            logger.info("Desconectado de AWS IoT Core.")
+        except Exception as e:
+            logger.error(f"Error al desconectar: {e}")
  
 # ==============================================================================
 # PUNTO DE ENTRADA
