@@ -50,6 +50,40 @@ try:
 except sqlite3.OperationalError:
     pass
 
+# Tabla de auditoria append-only para el Policy Engine.
+# Cierra el hueco "sin trazabilidad ordenada" del doc futuras_mejoras.md
+# (mapeo con NIST SP 800-53 AU-2 e ISO 27001 A.12.4).
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+        event_type TEXT,
+        device TEXT,
+        command TEXT,
+        classification TEXT,
+        decision_reason TEXT,
+        related_log_id INTEGER,
+        FOREIGN KEY (related_log_id) REFERENCES logs(id)
+    )
+''')
+
+# Triggers anti-modificacion: la integridad del log de auditoria depende de
+# que nadie pueda editarlo a posteriori desde la aplicacion.
+cursor.execute('''
+    CREATE TRIGGER IF NOT EXISTS audit_log_no_update
+    BEFORE UPDATE ON audit_log
+    BEGIN
+        SELECT RAISE(ABORT, 'audit_log is append-only');
+    END
+''')
+cursor.execute('''
+    CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
+    BEFORE DELETE ON audit_log
+    BEGIN
+        SELECT RAISE(ABORT, 'audit_log is append-only');
+    END
+''')
+
 conn.commit()
 conn.close()
 

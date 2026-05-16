@@ -88,7 +88,7 @@ def test():
         CERT_PATH  = config["aws"]["cert_path"]
         KEY_PATH   = config["aws"]["key_path"]
         ROOT_CA    = config["aws"]["root_ca"]
-        TOPIC_ACTIONS_BASE = config["mqtt"]["topic_actions_base"]
+        TOPIC_PUBLISH_COMANDO = config["mqtt"]["topic_publish_comando"]
     except Exception as e:
         print(f"[ERROR] Cargando config: {e}")
         return
@@ -106,9 +106,9 @@ def test():
     )
 
     TARGET = "Pi4-Felix"
-    # Usar los topics autorizados en la Policy (seguridad/*)
-    topic_comandos = f"{TOPIC_ACTIONS_BASE}{TARGET}"
-    topic_out      = f"{TOPIC_ACTIONS_BASE}{TARGET}/out"
+    # Topics del nuevo esquema (seguridad/<device>/comando[/respuesta])
+    topic_comandos = TOPIC_PUBLISH_COMANDO.replace("{device}", TARGET)
+    topic_out      = f"{topic_comandos}/respuesta"
 
     try:
         print("=" * 60)
@@ -121,7 +121,7 @@ def test():
         mock_pi4(client, topic_comandos, topic_out)
 
         # 2. Escuchar las respuestas en el topic de salida
-        feedback_topic = f"{TOPIC_ACTIONS_BASE}+/out"
+        feedback_topic = "seguridad/+/comando/respuesta"
         client.subscribe(feedback_topic, on_feedback)
         print(f"[INFO] Suscrito a {feedback_topic}")
         time.sleep(2)

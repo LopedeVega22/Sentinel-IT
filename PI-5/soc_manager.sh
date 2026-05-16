@@ -274,32 +274,50 @@ function purge_logs_and_records() {
         base_dir="$CLONE_DIR/PI-5"
     fi
 
-    if [ -n "$base_dir" ]; then
-        local was_running=false
-        if docker ps --format '{{.Names}}' | grep -q '^soc-coordinator-pi5$'; then
-            was_running=true
-            echo -e "${BLUE}[INFO] Deteniendo contenedor para liberar handles de la BD...${NC}"
-            (cd "$base_dir" && docker compose stop soc-coordinator-pi5 >/dev/null 2>&1)
-        fi
+    if [ -z "$base_dir" ]; then
+        echo -e "${RED}[ERROR] No se encuentra el despliegue (docker-compose.yml).${NC}"
+        read -n 1 -s -r -p "Presiona cualquier tecla para volver al menú..."
+        return
+    fi
 
-        echo -e "${BLUE}[INFO] Vaciando ficheros de log del host...${NC}"
-        : > "$base_dir/coordinator_soc.log" 2>/dev/null || true
-        : > "$base_dir/dashboard_soc.log" 2>/dev/null || true
-
-        echo -e "${BLUE}[INFO] Eliminando bases de datos locales (soc_alerts.db, data/soc_data.db)...${NC}"
-        rm -f "$base_dir/soc_alerts.db"
-        rm -f "$base_dir/data/soc_data.db"
-
-        echo -e "${BLUE}[INFO] Eliminando volumen Docker de la BD ('soc_pi5_database_persistent')...${NC}"
-        docker volume rm soc_pi5_database_persistent >/dev/null 2>&1 || true
-
-        if [ "$was_running" = true ]; then
-            echo -e "${BLUE}[INFO] Arrancando contenedor de nuevo (recreará el esquema de la BD)...${NC}"
-            (cd "$base_dir" && docker compose up -d soc-coordinator-pi5 >/dev/null 2>&1)
+    if docker ps --format '{{.Names}}' | grep -q '^soc-coordinator-pi5$'; then
+        # Vaciar la tabla 'logs' in-place vía exec — sin parar el contenedor,
+        # sin tocar el volumen (que `volume rm` no podría borrar mientras el
+        # contenedor exista, aunque esté parado).
+        echo -e "${BLUE}[INFO] Vaciando tabla 'logs' en la BD del contenedor...${NC}"
+        if docker exec soc-coordinator-pi5 python3 -c "
+import sqlite3, sys
+conn = sqlite3.connect('/app/data/soc_data.db')
+deleted = conn.execute('DELETE FROM logs').rowcount
+conn.commit()
+conn.execute('VACUUM')
+conn.close()
+print(f'[OK] {deleted} filas eliminadas')
+" ; then
+            :
+        else
+            echo -e "${RED}[WARN] No se pudo vaciar la BD vía exec — quizá el esquema aún no existe. Se reiniciará el contenedor.${NC}"
+            (cd "$base_dir" && docker compose restart soc-coordinator-pi5 >/dev/null 2>&1)
         fi
     else
-        echo -e "${RED}[ERROR] No se encuentra el despliegue (docker-compose.yml).${NC}"
+        # Contenedor no arrancado: podemos eliminar el volumen sin problema
+        echo -e "${YELLOW}[INFO] Contenedor parado; eliminando volumen Docker de la BD...${NC}"
+        docker volume rm soc_pi5_database_persistent >/dev/null 2>&1 || true
     fi
+
+    # Vaciar ficheros de log del host. Si el bind-mount los creó como directorios
+    # (porque las rutas origen no existían como ficheros), borrar su contenido.
+    echo -e "${BLUE}[INFO] Vaciando ficheros de log del host...${NC}"
+    for f in "$base_dir/coordinator_soc.log" "$base_dir/dashboard_soc.log"; do
+        if [ -d "$f" ]; then
+            find "$f" -mindepth 1 -delete 2>/dev/null || sudo find "$f" -mindepth 1 -delete 2>/dev/null || true
+        elif [ -f "$f" ]; then
+            : > "$f" 2>/dev/null || sudo sh -c ": > '$f'" 2>/dev/null || true
+        fi
+    done
+
+    # Limpiar BDs legacy que pudieran existir fuera del volumen
+    rm -f "$base_dir/soc_alerts.db" "$base_dir/data/soc_data.db" 2>/dev/null || true
 
     echo -e "${GREEN}[SUCCESS] Logs y registros eliminados.${NC}"
     read -n 1 -s -r -p "Presiona cualquier tecla para volver al menú..."

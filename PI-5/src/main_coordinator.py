@@ -11,6 +11,8 @@ from aws_connector import AWSMqttClient
 from agents.triage_agent.triage_agent import triage_agent
 from agents.feedback_agent.feedback_agent import feedback_agent
 from tools.iot_tools import init_iot_tools
+from tools import policy_engine
+from tools.db_tools import register_alert
 
 # ADK imports (google-adk >= 0.3)
 from google.adk.runners import Runner
@@ -27,8 +29,9 @@ CLIENT_ID            = config['aws']['client_id']
 CERT_PATH            = config['aws']['cert_path']
 KEY_PATH             = config['aws']['key_path']
 ROOT_CA              = config['aws']['root_ca']
-TOPIC_SUBSCRIBE_LOGS = config['mqtt']['topic_subscribe_logs']
-TOPIC_SUBSCRIBE_COMMANDS_OUT = "comandos/+/out"
+TOPIC_SUBSCRIBE_TELEMETRIA = config['mqtt']['topic_subscribe_telemetria']
+TOPIC_SUBSCRIBE_EVENTOS    = config['mqtt']['topic_subscribe_eventos']
+TOPIC_SUBSCRIBE_RESPUESTAS = config['mqtt']['topic_subscribe_respuestas']
 
 # --- Batch Configuration ---
 BATCH_MAX_SIZE      = config.get('batch', {}).get('max_size', 10)
@@ -218,7 +221,49 @@ def process_event(topic, payload, **kwargs):
         else:
             raw_log = json.dumps(data, indent=2, ensure_ascii=False)
             
-        queue_type = "feedback" if "comandos" in topic and "out" in topic else "triage"
+        # Las respuestas a comandos llegan a `seguridad/<device>/respuesta` y se enrutan
+        # al feedback_agent. Telemetría y eventos van al triage_agent.
+        queue_type = "feedback" if topic.endswith("/respuesta") else "triage"
+
+        # --- Capa 3 del Policy Engine: round-trip verification ---
+        # Antes de encolar un feedback al feedback_agent, comprobamos que el
+        # comando que dice haberse ejecutado en PI-4 fue emitido desde aqui.
+        # Si no, levantamos un incidente INTRUSION-COMMAND-INJECTION y NO lo
+        # tratamos como feedback (de lo contrario, contaminariamos el estado
+        # de las mitigaciones legitimas con resultados de ordenes ajenas).
+        if queue_type == "feedback":
+            executed_cmd = data.get("comando") or data.get("command") or ""
+            if executed_cmd:
+                verdict = policy_engine.verify_feedback(executed_cmd, source_device)
+                if verdict == "ANOMALY":
+                    logger.warning(
+                        f"[POLICY] Round-trip ANOMALY desde {source_device}: comando "
+                        f"'{executed_cmd}' no fue emitido por el coordinador."
+                    )
+                    try:
+                        register_alert(
+                            device=source_device,
+                            attack_vector="INTRUSION-COMMAND-INJECTION",
+                            source_ip="127.0.0.1",
+                            severity="Critica",
+                            verdict=(
+                                "El sensor reporto la ejecucion de un comando que "
+                                "el coordinador nunca emitio. Posible inyeccion via "
+                                "credenciales filtradas o suplantacion."
+                            ),
+                            raw_log=raw_log,
+                        )
+                    except Exception as alert_err:
+                        logger.error(f"[POLICY] No se pudo registrar la alerta INTRUSION: {alert_err}")
+                    policy_engine.audit(
+                        event_type="ANOMALY",
+                        device=source_device,
+                        command=executed_cmd,
+                        classification=None,
+                        decision_reason="Comando no presente en cache de despachos",
+                    )
+                    return  # No encolamos: se ha tratado como incidente, no como feedback.
+
         queue = _feedback_queue if queue_type == "feedback" else _triage_queue
 
         logger.info(f"[MQTT] [{queue_type.upper()}] Event received from {source_device} on topic {topic} — queued")
@@ -256,8 +301,9 @@ if __name__ == "__main__":
         triage_thread.start()
         feedback_thread.start()
 
-        global_iot_client.subscribe(TOPIC_SUBSCRIBE_LOGS, process_event)
-        global_iot_client.subscribe(TOPIC_SUBSCRIBE_COMMANDS_OUT, process_event)
+        global_iot_client.subscribe(TOPIC_SUBSCRIBE_TELEMETRIA, process_event)
+        global_iot_client.subscribe(TOPIC_SUBSCRIBE_EVENTOS,    process_event)
+        global_iot_client.subscribe(TOPIC_SUBSCRIBE_RESPUESTAS, process_event)
 
         logger.info("[INFO] Autonomous SOC (ADK Powered) Active.")
         logger.info(f"[INFO] Batch mode: max_size={BATCH_MAX_SIZE}, flush_interval={BATCH_FLUSH_INTERVAL}s")

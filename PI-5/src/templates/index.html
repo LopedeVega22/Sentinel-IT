@@ -660,16 +660,16 @@
                                         {% set action_lower = row[7]|lower if row[7] else '' %}
                                         
                                         {% if row[9] == 'PENDING' %}
-                                        <button onclick="showCommandModal('{{ row[0] }}', '{{ row[1] }}', '{{ row[10] | escape }}', '{{ row[11] | escape }}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>
+                                        <button type="button" onclick="showCommandModal(this)" data-log-id="{{ row[0] }}" data-device="{{ row[1] }}" data-command="{{ row[10] | e }}" data-rationale="{{ row[11] | e }}" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>
                                         {% else %}
                                             {% if row[10] and row[10]|trim != '' %}
-                                            <button onclick="showViewCommandModal('{{ row[10] | escape }}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
+                                            <button type="button" onclick="showViewCommandModal(this)" data-command="{{ row[10] | e }}" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>
                                             {% endif %}
                                         {% endif %}
-                                        
+
                                         {% set is_blocked = (row[9] == 'APPROVED') or ('bloque' in action_lower) %}
                                         {% if is_blocked and '[revertido]' not in action_lower %}
-                                        <button onclick="showRevertModal('{{ row[0] }}', '{{ row[4] }}', '{{ row[10] | default('', true) | escape }}')" class="btn-revert">REVERTIR</button>
+                                        <button type="button" onclick="showRevertModal(this)" data-log-id="{{ row[0] }}" data-ip="{{ row[4] }}" data-command="{{ row[10] | default('', true) | e }}" class="btn-revert">REVERTIR</button>
                                         {% endif %}
                                         {% if row[8] %}
                                         <span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: {{ row[8] }}</span>
@@ -771,11 +771,13 @@
         </div>
         
         <input type="hidden" id="modalLogId">
-        
+
         <div style="margin-bottom: 16px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Dispositivo Destino</div>
             <div id="modalPlatform" style="font-family: var(--font-mono); color: var(--text-primary); font-weight: 600;"></div>
         </div>
+
+        <div id="modalRiskBanner" style="display: none; margin-bottom: 16px; padding: 10px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 600;"></div>
 
         <div style="margin-bottom: 16px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Justificación de la IA</div>
@@ -785,6 +787,16 @@
         <div style="margin-bottom: 16px;">
             <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;">Comando Bash Propuesto (Editable)</div>
             <textarea id="modalRawCommand" class="code-block" rows="3"></textarea>
+        </div>
+
+        <div id="modalCriticalConfirm" style="display: none; margin-bottom: 16px; padding: 10px 12px; border: 1px solid var(--accent-red); border-radius: 6px; background: rgba(239,68,68,0.08);">
+            <label style="display: flex; gap: 10px; align-items: flex-start; cursor: pointer;">
+                <input type="checkbox" id="modalConfirmCriticalCheck" style="margin-top: 3px;">
+                <span style="font-size: 0.82rem; color: var(--accent-red); line-height: 1.4;">
+                    <strong>Entiendo que este comando es CRITICAL.</strong> Acepto la
+                    responsabilidad de ejecutarlo: la acción puede ser destructiva o no reversible.
+                </span>
+            </label>
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 12px;">
@@ -1129,7 +1141,8 @@
         document.getElementById('rawLogModal').classList.remove('active');
     }
 
-    function showViewCommandModal(command) {
+    function showViewCommandModal(arg) {
+        let command = (arg && arg.dataset) ? (arg.dataset.command || '') : (arg || '');
         if (!command || command.trim() === '') command = 'No hay comando registrado.';
         command = command.replace(/\s*#\s*\(.*?\)\s*$/, '').trim();
         document.getElementById('viewCommandContent').textContent = command;
@@ -1139,7 +1152,10 @@
         document.getElementById('viewCommandModal').classList.remove('active');
     }
 
-    function showRevertModal(logId, ip, pendingCmd) {
+    function showRevertModal(btn) {
+        const logId = btn.dataset.logId;
+        const ip = btn.dataset.ip;
+        const pendingCmd = btn.dataset.command || '';
         document.getElementById('revertLogId').value = logId;
         document.getElementById('revertIpLabel').textContent = ip;
         // Derive inverse command dynamically from the stored command
@@ -1173,11 +1189,51 @@
         }
     }
 
-    function showCommandModal(logId, device, command, rationale) {
+    // El rationale viene prefijado por el Policy Engine como "[NIVEL] texto..."
+    // Mapa de estilos por nivel para el banner del modal HITL.
+    const RISK_STYLES = {
+        SAFE_READ: { bg: 'rgba(16,185,129,0.15)', border: '#10b981', color: '#10b981', label: 'SAFE_READ — lectura, sin efectos' },
+        LOW:       { bg: 'rgba(59,130,246,0.15)',  border: '#3b82f6', color: '#3b82f6', label: 'LOW — escritura acotada y reversible' },
+        HIGH:      { bg: 'rgba(245,158,11,0.15)',  border: '#f59e0b', color: '#f59e0b', label: 'HIGH — escritura amplia o servicio crítico' },
+        CRITICAL:  { bg: 'rgba(239,68,68,0.15)',   border: '#ef4444', color: '#ef4444', label: 'CRITICAL — acción destructiva o no reversible' },
+    };
+
+    function parseRiskLevel(rationale) {
+        const m = (rationale || '').match(/^\s*\[(SAFE_READ|LOW|HIGH|CRITICAL)\]\s*([\s\S]*)$/);
+        if (m) return { level: m[1], text: m[2] };
+        return { level: 'HIGH', text: rationale };
+    }
+
+    function showCommandModal(btn) {
+        const logId = btn.dataset.logId;
+        const device = btn.dataset.device;
+        const command = btn.dataset.command || '';
+        const rationale = btn.dataset.rationale || '';
         document.getElementById('modalLogId').value = logId;
         document.getElementById('modalPlatform').textContent = device;
-        document.getElementById('modalRawCommand').value = (command || '').replace(/\s*#\s*\(.*?\)\s*$/, '').trim();
-        document.getElementById('modalRationale').textContent = rationale;
+        document.getElementById('modalRawCommand').value = command.replace(/\s*#\s*\(.*?\)\s*$/, '').trim();
+
+        const parsed = parseRiskLevel(rationale);
+        const style = RISK_STYLES[parsed.level] || RISK_STYLES.HIGH;
+        const banner = document.getElementById('modalRiskBanner');
+        banner.style.display = 'block';
+        banner.style.background = style.bg;
+        banner.style.border = '1px solid ' + style.border;
+        banner.style.color = style.color;
+        banner.textContent = style.label;
+        banner.dataset.level = parsed.level;
+        document.getElementById('modalRationale').textContent = parsed.text;
+
+        const criticalBox = document.getElementById('modalCriticalConfirm');
+        const criticalCheck = document.getElementById('modalConfirmCriticalCheck');
+        if (parsed.level === 'CRITICAL') {
+            criticalBox.style.display = 'block';
+            criticalCheck.checked = false;
+        } else {
+            criticalBox.style.display = 'none';
+            criticalCheck.checked = false;
+        }
+
         document.getElementById('commandModal').classList.add('active');
     }
 
@@ -1188,18 +1244,47 @@
     async function submitMitigation(action) {
         const logId = document.getElementById('modalLogId').value;
         const finalCommand = document.getElementById('modalRawCommand').value;
+        const bannerLevel = document.getElementById('modalRiskBanner').dataset.level || '';
+        const confirmCritical = document.getElementById('modalConfirmCriticalCheck').checked;
+
+        // Bloqueo en cliente para CRITICAL sin checkbox marcado: ahorra round-trip
+        // y muestra el aviso justo donde el humano lo necesita. El backend
+        // también lo valida (defensa en profundidad).
+        if (action === 'approve' && bannerLevel === 'CRITICAL' && !confirmCritical) {
+            showToast("Marca la confirmación de riesgo CRITICAL para ejecutar.", "error");
+            return;
+        }
+
         try {
             const res = await fetch('/api/mitigate/approve', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ log_id: logId, action: action, final_command: finalCommand })
+                body: JSON.stringify({
+                    log_id: logId,
+                    action: action,
+                    final_command: finalCommand,
+                    confirm_critical: confirmCritical
+                })
             });
             const data = await res.json();
-            if(data.status === 'success') { 
-                closeCommandModal(); 
-                showToast("Mitigación aplicada correctamente", "success");
-                refreshDashboard(); 
-            } else { 
-                showToast("Error: " + data.message, "error"); 
+            if(data.status === 'success') {
+                closeCommandModal();
+                showToast(data.message || "Mitigación aplicada correctamente", "success");
+                refreshDashboard();
+            } else if (data.status === 'needs_confirmation') {
+                // El backend re-clasificó el comando editado como CRITICAL.
+                // Mostramos el checkbox aunque el banner inicial fuera de menor nivel.
+                const style = RISK_STYLES.CRITICAL;
+                const banner = document.getElementById('modalRiskBanner');
+                banner.style.display = 'block';
+                banner.style.background = style.bg;
+                banner.style.border = '1px solid ' + style.border;
+                banner.style.color = style.color;
+                banner.textContent = style.label + ' (re-clasificado tras edición)';
+                banner.dataset.level = 'CRITICAL';
+                document.getElementById('modalCriticalConfirm').style.display = 'block';
+                showToast("El comando editado es CRITICAL. Confirma para ejecutarlo.", "error");
+            } else {
+                showToast("Error: " + (data.message || 'desconocido'), "error");
             }
         } catch(err) { showToast("Error de red al procesar mitigación.", "error"); }
     }
@@ -1332,15 +1417,15 @@
                     let isBlocked = log.status === 'APPROVED' || actionLower.includes('bloque');
                     
                     if (log.status === 'PENDING') {
-                        actionHtml += `<button onclick="showCommandModal('${log.id}', '${escapeHtml(log.device).replace(/'/g, "\\'")}', '${escapeHtml(log.pending_command || '').replace(/'/g, "\\'")}', '${escapeHtml(log.rationale || '').replace(/'/g, "\\'")}')" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>`;
+                        actionHtml += `<button type="button" onclick="showCommandModal(this)" data-log-id="${escapeHtml(String(log.id))}" data-device="${escapeHtml(log.device)}" data-command="${escapeHtml(log.pending_command || '')}" data-rationale="${escapeHtml(log.rationale || '')}" style="background: var(--accent-red); color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 0.7rem; font-weight: bold; box-shadow: var(--glow-red);">REVISAR MITIGACIÓN</button>`;
                     } else {
                         if (log.pending_command && log.pending_command.trim() !== '') {
-                            actionHtml += `<button onclick="showViewCommandModal('${escapeHtml(log.pending_command).replace(/'/g, "\\'")}')" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
+                            actionHtml += `<button type="button" onclick="showViewCommandModal(this)" data-command="${escapeHtml(log.pending_command)}" class="btn-revert" style="border-color: var(--accent-blue); color: var(--accent-blue);">VER COMANDO</button>`;
                         }
                     }
 
                     if (isBlocked && !actionLower.includes('[revertido]')) {
-                        actionHtml += `<button onclick="showRevertModal('${log.id}', '${escapeHtml(log.source_ip)}', '${escapeHtml(log.pending_command || '').replace(/'/g, "\\'")}')" class="btn-revert">REVERTIR</button>`;
+                        actionHtml += `<button type="button" onclick="showRevertModal(this)" data-log-id="${escapeHtml(String(log.id))}" data-ip="${escapeHtml(log.source_ip)}" data-command="${escapeHtml(log.pending_command || '')}" class="btn-revert">REVERTIR</button>`;
                     }
                     if (log.mitigation_status) {
                         actionHtml += `<span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: ${escapeHtml(log.mitigation_status)}</span>`;

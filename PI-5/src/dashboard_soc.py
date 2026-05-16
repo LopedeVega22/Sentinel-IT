@@ -9,6 +9,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from aws_connector import AWSMqttClient
+from tools import policy_engine
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), '.env'))
@@ -41,7 +42,7 @@ try:
     CERT_PATH = os.path.join(BASE_DIR, config['aws']['cert_path'].replace('./', ''))
     KEY_PATH = os.path.join(BASE_DIR, config['aws']['key_path'].replace('./', ''))
     ROOT_CA = os.path.join(BASE_DIR, config['aws']['root_ca'].replace('./', ''))
-    TOPIC_ACTIONS_BASE = config['mqtt']['topic_actions_base']
+    TOPIC_PUBLISH_COMANDO = config['mqtt']['topic_publish_comando']
     
     mqtt_client = AWSMqttClient(
         endpoint=ENDPOINT,
@@ -537,24 +538,69 @@ def approve_mitigation():
             if not final_command:
                 conn.close()
                 return jsonify({"status": "error", "message": "No command provided for approval"}), 400
-            
+
+            # Re-clasificacion obligatoria tras edicion humana: el comando que
+            # se ejecuta no es necesariamente el que propuso el agente IA.
+            classification = policy_engine.classify(final_command)
+            confirm_critical = bool(data.get('confirm_critical', False))
+
+            if classification.level == policy_engine.RiskLevel.CRITICAL and not confirm_critical:
+                conn.close()
+                policy_engine.audit(
+                    event_type="REJECT_CRITICAL_UNCONFIRMED",
+                    device=device,
+                    command=final_command,
+                    classification=classification,
+                    decision_reason="Falta confirm_critical para nivel CRITICAL",
+                    related_log_id=log_id,
+                )
+                return jsonify({
+                    "status": "needs_confirmation",
+                    "risk_level": classification.level.label(),
+                    "reasons": classification.reasons,
+                    "message": (
+                        "El comando editado se ha clasificado como CRITICAL. "
+                        "Marque la confirmacion de doble riesgo para ejecutarlo."
+                    ),
+                }), 400
+
             # Send the command to the IoT Edge device
-            topic = f"{TOPIC_ACTIONS_BASE}{device}"
+            topic = TOPIC_PUBLISH_COMANDO.replace("{device}", device)
             action_payload = {
                 "accion": "ejecutar_comando",
                 "comando": final_command,
                 "motivo": f"Manual approval from dashboard for IP {blocked_ip}"
             }
-            logger.info(f"[INFO] Sending approved mitigation to {topic}: {final_command}")
+            logger.info(
+                f"[INFO] Sending approved mitigation ({classification.level.label()}) "
+                f"to {topic}: {final_command}"
+            )
             mqtt_client.publish(topic, action_payload)
-            
+            policy_engine.record_dispatch(final_command, device, log_id=log_id)
+            policy_engine.audit(
+                event_type="APPROVE",
+                device=device,
+                command=final_command,
+                classification=classification,
+                decision_reason=f"Aprobado por humano (IP {blocked_ip})",
+                related_log_id=log_id,
+            )
+
             new_action = str(action_taken) + " [EJECUTADO]"
             c.execute("UPDATE logs SET status = 'APPROVED', accion_tomada = ? WHERE id = ?", (new_action, log_id))
-            message = "Comando ejecutado exitosamente."
-        
+            message = f"Comando ejecutado ({classification.level.label()})."
+
         elif action == 'reject':
             new_action = str(action_taken) + " [RECHAZADO]"
             c.execute("UPDATE logs SET status = 'REJECTED', accion_tomada = ? WHERE id = ?", (new_action, log_id))
+            policy_engine.audit(
+                event_type="REJECT",
+                device=device,
+                command=final_command or "",
+                classification=None,
+                decision_reason="Rechazado por humano",
+                related_log_id=log_id,
+            )
             message = "Mitigacion rechazada."
             
         else:
@@ -613,17 +659,30 @@ def revert_action(log_id):
             revert_command = f"sudo iptables -D INPUT -s {blocked_ip} -j DROP"
             
         reason = f"Manual revert from dashboard for IP {blocked_ip}"
-        
-        topic = f"{TOPIC_ACTIONS_BASE}{device}"
+
+        topic = TOPIC_PUBLISH_COMANDO.replace("{device}", device)
         action_payload = {
             "accion": "ejecutar_comando",
             "comando": revert_command,
             "motivo": reason
         }
         
-        logger.info(f"[INFO] Sending revert to {topic}: {revert_command}")
+        revert_classification = policy_engine.classify(revert_command)
+        logger.info(
+            f"[INFO] Sending revert ({revert_classification.level.label()}) "
+            f"to {topic}: {revert_command}"
+        )
         mqtt_client.publish(topic, action_payload)
-        
+        policy_engine.record_dispatch(revert_command, device, log_id=log_id)
+        policy_engine.audit(
+            event_type="REVERT",
+            device=device,
+            command=revert_command,
+            classification=revert_classification,
+            decision_reason=reason,
+            related_log_id=log_id,
+        )
+
         new_action = str(action_taken) + " [REVERTIDO]"
         
         # Retry logic for DB updates to handle "database is locked"
