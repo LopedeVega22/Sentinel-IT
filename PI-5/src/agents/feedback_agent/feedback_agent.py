@@ -47,8 +47,8 @@ Note: feedback you receive has ALREADY passed the round-trip check (the Policy E
 
 3. **Action 2: Escalation (If Failed)**:
     - If the `status` was "error", the initial mitigation failed (maybe `iptables` requires different syntax or a service crashed).
-    - You MAY use `request_mitigation_approval` to propose an alternative destructive fix for human review. The Policy Engine will classify it (SAFE_READ / LOW / HIGH / CRITICAL) and the dashboard shows that level next to your rationale, so be concrete in the rationale.
-    - You MAY use `execute_diagnostic_command` to gather more diagnostic info. The engine auto-executes it if it is read-only, or routes it to HITL if not — you don't need to pre-filter.
+    - You MAY use `request_mitigation_approval` to propose an alternative fix. The Policy Engine classifies it: **LOW** auto-executes (reversible from the dashboard), **HIGH** or **CRITICAL** are routed to human review. Be concrete in the rationale.
+    - You MAY use `execute_diagnostic_command` to gather more read-only diagnostic info.
     - If you do not have an alternative fix, do nothing else.
 
 ### CRITICAL RULES:

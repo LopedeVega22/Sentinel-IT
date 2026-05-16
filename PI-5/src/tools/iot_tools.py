@@ -96,22 +96,27 @@ def execute_diagnostic_command(device: str, command: str, reason: str) -> dict:
 
 def request_mitigation_approval(device: str, mitigation_command: str, rationale: str) -> dict:
     """
-    Pone en cuarentena un comando que no es lectura pura para aprobacion humana en el dashboard.
+    Propone un comando de mitigacion. El Policy Engine decide el flujo segun el riesgo:
 
-    El nivel de riesgo lo determina el Policy Engine y se inyecta como
-    prefijo en el rationale (`[NIVEL] ...`) para que el front lo muestre
-    al humano con un codigo de color.
+      * SAFE_READ / LOW  -> auto-ejecucion (publica directo). El comando queda
+        registrado con status='APPROVED' y pending_command relleno, asi el
+        dashboard ofrece el boton REVERTIR si el operador necesita deshacerlo.
+      * HIGH / CRITICAL  -> queda en cuarentena (status='PENDING') con el
+        rationale prefijado por nivel para que el dashboard muestre el banner
+        y, en CRITICAL, exija checkbox de confirmacion.
 
     Args:
         device: ID del dispositivo objetivo.
-        mitigation_command: Comando Bash a ejecutar tras aprobacion.
-        rationale: Justificacion para el humano de por que se debe ejecutar.
+        mitigation_command: Comando Bash a ejecutar.
+        rationale: Justificacion para el humano (o registro de auditoria).
     """
     try:
         # Sanitizar: eliminar comentarios de bash al final del comando (ej. "# (Comando inferido)")
         mitigation_command = re.sub(r'\s*#\s*\(.*?\)\s*$', '', mitigation_command).strip()
 
         cls = policy_engine.classify(mitigation_command)
+        auto_execute = cls.level <= policy_engine.RiskLevel.LOW
+
         # Si la razon viene ya prefijada por execute_diagnostic_command no
         # duplicamos el tag.
         if rationale.lstrip().startswith("[" + cls.level.label() + "]"):
@@ -119,64 +124,150 @@ def request_mitigation_approval(device: str, mitigation_command: str, rationale:
         else:
             decorated_rationale = f"[{cls.level.label()}] {rationale}"
 
-        # Guardar en DB el comando en estado PENDING
-        for attempt in range(5):
-            conn = None
-            try:
-                conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
-                conn.execute('PRAGMA journal_mode=WAL;')
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE logs
-                    SET status = 'PENDING',
-                        pending_command = ?,
-                        rationale = ?,
-                        accion_tomada = CASE
-                            WHEN accion_tomada = 'Solo Registro' THEN ?
-                            ELSE accion_tomada || ?
-                        END
-                    WHERE id = (
-                        SELECT id FROM logs
-                        WHERE dispositivo = ?
-                        ORDER BY timestamp DESC
-                        LIMIT 1
-                    )
-                """, (mitigation_command, decorated_rationale,
-                      f"Requiere Aprobacion: {mitigation_command}",
-                      f"\nRequiere Aprobacion: {mitigation_command}", device))
-                conn.commit()
-                break
-            except sqlite3.OperationalError as db_e:
-                if "locked" in str(db_e).lower() or "readonly" in str(db_e).lower():
-                    time.sleep(2)
-                else:
-                    break
-            except Exception:
-                break
-            finally:
-                if conn:
-                    conn.close()
+        if auto_execute:
+            return _auto_execute_low(device, mitigation_command, decorated_rationale, cls)
+        return _quarantine_for_hitl(device, mitigation_command, decorated_rationale, cls, rationale)
 
-        policy_engine.audit(
-            event_type="QUARANTINE",
-            device=device,
-            command=mitigation_command,
-            classification=cls,
-            decision_reason=rationale,
-        )
-
-        logger.info(
-            f"[AGENT] Mitigacion puesta en PENDING_APPROVAL para {device} "
-            f"({cls.level.label()}): {mitigation_command}"
-        )
-        return {
-            "status": "pending_approval",
-            "risk_level": cls.level.label(),
-            "message": (
-                f"Comando en cuarentena ({cls.level.label()}). Se ha solicitado "
-                f"aprobacion al administrador. No debes hacer nada mas sobre esta alerta."
-            ),
-        }
     except Exception as e:
         logger.error(f"[ERROR] Error en request_mitigation_approval: {e}")
         return {"status": "error", "message": str(e)}
+
+
+def _auto_execute_low(device: str, command: str, decorated_rationale: str,
+                      cls: 'policy_engine.Classification') -> dict:
+    """Publica un comando LOW/SAFE_READ directo y deja la fila lista para REVERTIR."""
+    if _iot_client is None:
+        logger.error("[ERROR] Cliente IoT no inicializado.")
+        return {"status": "error", "message": "IoT Client not initialized"}
+
+    response_topic = TOPIC_PUBLISH_COMANDO.replace("{device}", device)
+    action_payload = {
+        "accion": "ejecutar_comando",
+        "comando": command,
+        "motivo": f"Auto-ejecucion {cls.level.label()}",
+    }
+    _iot_client.publish(response_topic, action_payload)
+    policy_engine.record_dispatch(command, device, log_id=None)
+
+    # Marcar la fila mas reciente del dispositivo como APPROVED para que el
+    # dashboard ofrezca el boton REVERTIR (mismo flujo que tras aprobacion HITL).
+    for attempt in range(5):
+        conn = None
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
+            conn.execute('PRAGMA journal_mode=WAL;')
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE logs
+                SET status = 'APPROVED',
+                    pending_command = ?,
+                    rationale = ?,
+                    accion_tomada = CASE
+                        WHEN accion_tomada = 'Solo Registro' THEN ?
+                        ELSE accion_tomada || ?
+                    END
+                WHERE id = (
+                    SELECT id FROM logs
+                    WHERE dispositivo = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                )
+            """, (command, decorated_rationale,
+                  f"Auto-ejecutado [{cls.level.label()}]: {command}",
+                  f"\nAuto-ejecutado [{cls.level.label()}]: {command}", device))
+            conn.commit()
+            break
+        except sqlite3.OperationalError as db_e:
+            if "locked" in str(db_e).lower() or "readonly" in str(db_e).lower():
+                time.sleep(2)
+            else:
+                break
+        except Exception:
+            break
+        finally:
+            if conn:
+                conn.close()
+
+    policy_engine.audit(
+        event_type="AUTO_DISPATCH",
+        device=device,
+        command=command,
+        classification=cls,
+        decision_reason=f"Auto-ejecucion por nivel {cls.level.label()}",
+    )
+
+    logger.info(
+        f"[AGENT] Mitigacion auto-ejecutada ({cls.level.label()}) en {device}: {command}"
+    )
+    return {
+        "status": "auto_executed",
+        "risk_level": cls.level.label(),
+        "target": device,
+        "command": command,
+        "message": (
+            f"Comando ejecutado automaticamente ({cls.level.label()}). "
+            f"Puede revertirse desde el dashboard si fuera necesario."
+        ),
+    }
+
+
+def _quarantine_for_hitl(device: str, command: str, decorated_rationale: str,
+                         cls: 'policy_engine.Classification', raw_rationale: str) -> dict:
+    """Deja un comando HIGH/CRITICAL en estado PENDING a la espera de revision humana."""
+    for attempt in range(5):
+        conn = None
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
+            conn.execute('PRAGMA journal_mode=WAL;')
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE logs
+                SET status = 'PENDING',
+                    pending_command = ?,
+                    rationale = ?,
+                    accion_tomada = CASE
+                        WHEN accion_tomada = 'Solo Registro' THEN ?
+                        ELSE accion_tomada || ?
+                    END
+                WHERE id = (
+                    SELECT id FROM logs
+                    WHERE dispositivo = ?
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                )
+            """, (command, decorated_rationale,
+                  f"Requiere Revision: {command}",
+                  f"\nRequiere Revision: {command}", device))
+            conn.commit()
+            break
+        except sqlite3.OperationalError as db_e:
+            if "locked" in str(db_e).lower() or "readonly" in str(db_e).lower():
+                time.sleep(2)
+            else:
+                break
+        except Exception:
+            break
+        finally:
+            if conn:
+                conn.close()
+
+    policy_engine.audit(
+        event_type="QUARANTINE",
+        device=device,
+        command=command,
+        classification=cls,
+        decision_reason=raw_rationale,
+    )
+
+    logger.info(
+        f"[AGENT] Mitigacion en revision humana ({cls.level.label()}) para "
+        f"{device}: {command}"
+    )
+    return {
+        "status": "pending_approval",
+        "risk_level": cls.level.label(),
+        "message": (
+            f"Comando en revision humana ({cls.level.label()}). "
+            f"No debes hacer nada mas sobre esta alerta."
+        ),
+    }

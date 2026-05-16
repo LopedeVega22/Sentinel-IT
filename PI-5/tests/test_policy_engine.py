@@ -224,5 +224,119 @@ class TestAuditLogInmutable(unittest.TestCase):
         self.assertEqual(count, 2)
 
 
+class TestMitigationApprovalAutoExecute(unittest.TestCase):
+    """
+    Comprueba la nueva semantica de request_mitigation_approval:
+        - LOW (o SAFE_READ) -> publica directo via _iot_client (auto-ejecucion).
+        - HIGH / CRITICAL  -> queda en cuarentena (no publica).
+    Mockea el cliente IoT y la BD para no depender del entorno.
+    """
+
+    def setUp(self):
+        from tools import iot_tools
+        self.iot_tools = iot_tools
+
+        # Cliente IoT mock que registra los publish
+        class _MockClient:
+            def __init__(self):
+                self.publishes = []
+
+            def publish(self, topic, payload):
+                self.publishes.append((topic, payload))
+
+        self.mock_client = _MockClient()
+        iot_tools.init_iot_tools(self.mock_client)
+
+        # Redirigir DB a tmp con schema minimo
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = os.path.join(self.tmpdir, "soc_test.db")
+        conn = sqlite3.connect(self.db_path)
+        conn.executescript("""
+            CREATE TABLE logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dispositivo TEXT,
+                servicio TEXT,
+                accion_tomada TEXT,
+                status TEXT,
+                pending_command TEXT,
+                rationale TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts DATETIME DEFAULT CURRENT_TIMESTAMP,
+                event_type TEXT,
+                device TEXT,
+                command TEXT,
+                classification TEXT,
+                decision_reason TEXT,
+                related_log_id INTEGER
+            );
+            INSERT INTO logs (dispositivo, servicio, accion_tomada, status)
+            VALUES ('Pi4-Test', 'SSH', 'Solo Registro', 'LOGGED');
+        """)
+        conn.commit()
+        conn.close()
+
+        # Apuntar tanto iot_tools como policy_engine a la BD temporal
+        self._original_iot_db = iot_tools.DB_PATH
+        self._original_policy_db = policy_engine.DB_PATH
+        iot_tools.DB_PATH = self.db_path
+        policy_engine.DB_PATH = self.db_path
+
+        # Cache limpia para no interferir con round-trip
+        with policy_engine._dispatch_lock:
+            policy_engine._dispatch_cache.clear()
+
+    def tearDown(self):
+        self.iot_tools.DB_PATH = self._original_iot_db
+        policy_engine.DB_PATH = self._original_policy_db
+        self.iot_tools.init_iot_tools(None)
+        try:
+            os.remove(self.db_path)
+        except OSError:
+            pass
+        os.rmdir(self.tmpdir)
+
+    def _row_status(self):
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute("SELECT status FROM logs WHERE dispositivo='Pi4-Test'").fetchone()
+        conn.close()
+        return row[0]
+
+    def test_low_se_autoejecuta(self):
+        result = self.iot_tools.request_mitigation_approval(
+            device="Pi4-Test",
+            mitigation_command="sudo iptables -A INPUT -s 1.2.3.4 -j DROP",
+            rationale="Bloqueo de IP atacante",
+        )
+        self.assertEqual(result["status"], "auto_executed")
+        self.assertEqual(result["risk_level"], "LOW")
+        self.assertEqual(len(self.mock_client.publishes), 1)
+        self.assertEqual(self._row_status(), "APPROVED")
+
+    def test_high_queda_pendiente(self):
+        result = self.iot_tools.request_mitigation_approval(
+            device="Pi4-Test",
+            mitigation_command="sudo systemctl restart apache2",
+            rationale="Reiniciar Apache",
+        )
+        self.assertEqual(result["status"], "pending_approval")
+        self.assertEqual(result["risk_level"], "HIGH")
+        self.assertEqual(len(self.mock_client.publishes), 0)
+        self.assertEqual(self._row_status(), "PENDING")
+
+    def test_critical_queda_pendiente(self):
+        result = self.iot_tools.request_mitigation_approval(
+            device="Pi4-Test",
+            mitigation_command="rm -rf /tmp",
+            rationale="Limpieza brusca",
+        )
+        self.assertEqual(result["status"], "pending_approval")
+        self.assertEqual(result["risk_level"], "CRITICAL")
+        self.assertEqual(len(self.mock_client.publishes), 0)
+        self.assertEqual(self._row_status(), "PENDING")
+
+
 if __name__ == "__main__":
     unittest.main()
