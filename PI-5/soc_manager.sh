@@ -28,11 +28,8 @@ function show_header() {
 
 function check_root() {
     if [ "$EUID" -ne 0 ]; then
-        show_header
-        echo -e "${RED}[ERROR] Este script requiere permisos de administrador para ejecutarse correctamente.${NC}"
-        echo -e "${YELLOW}Por favor, inicia la ejecución con sudo: sudo $0${NC}"
-        echo ""
-        exit 1
+        echo -e "${YELLOW}[INFO] Solicitando permisos de administrador...${NC}"
+        exec sudo "$0" "$@"
     fi
 }
 
@@ -240,10 +237,12 @@ function start_soc() {
 
 function stop_soc() {
     echo -e "${GREEN}[*] Opción 3: Detener SOC${NC}"
+    # --profile local-ai: incluye el contenedor Ollama aunque no esté activo el perfil en esta shell
+    # --remove-orphans: elimina contenedores de servicios que ya no existen en el compose
     if [ -f "./docker-compose.yml" ]; then
-        docker compose down
+        docker compose --profile local-ai down --remove-orphans
     elif [ -d "$CLONE_DIR/PI-5" ]; then
-        cd "$CLONE_DIR/PI-5" && docker compose down && cd - > /dev/null
+        cd "$CLONE_DIR/PI-5" && docker compose --profile local-ai down --remove-orphans && cd - > /dev/null
     fi
     echo -e "${GREEN}[SUCCESS] Servicios detenidos.${NC}"
     read -n 1 -s -r -p "Presiona cualquier tecla para volver al menú..."

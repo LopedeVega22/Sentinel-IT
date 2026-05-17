@@ -10,7 +10,7 @@ mqtt:
   # Suscripciones del coordinador (mensajes que llegan de los sensores)
   topic_subscribe_telemetria: "seguridad/+/telemetria"
   topic_subscribe_eventos:    "seguridad/+/evento"
-  topic_subscribe_respuestas: "seguridad/+/comando/respuesta"
+  topic_subscribe_respuestas: "seguridad/+/respuesta"
   # Plantilla para publicar comandos al sensor objetivo ({device} se sustituye en runtime)
   topic_publish_comando:      "seguridad/{device}/comando"
 

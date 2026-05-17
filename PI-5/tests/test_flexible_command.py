@@ -106,9 +106,9 @@ def test():
     )
 
     TARGET = "Pi4-Felix"
-    # Topics del nuevo esquema (seguridad/<device>/comando[/respuesta])
+    # Topics del nuevo esquema (seguridad/<device>/comando + seguridad/<device>/respuesta)
     topic_comandos = TOPIC_PUBLISH_COMANDO.replace("{device}", TARGET)
-    topic_out      = f"{topic_comandos}/respuesta"
+    topic_out      = f"seguridad/{TARGET}/respuesta"
 
     try:
         print("=" * 60)
