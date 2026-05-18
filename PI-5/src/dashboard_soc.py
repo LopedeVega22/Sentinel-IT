@@ -575,7 +575,15 @@ def approve_mitigation():
                 f"[INFO] Sending approved mitigation ({classification.level.label()}) "
                 f"to {topic}: {final_command}"
             )
-            mqtt_client.publish(topic, action_payload)
+            try:
+                mqtt_client.publish(topic, action_payload, wait_for_ack=True)
+            except Exception as pub_err:
+                logger.error(f"[ERROR] Publish HITL fallo, no se actualiza DB: {pub_err}")
+                conn.close()
+                return jsonify({
+                    "status": "error",
+                    "message": f"MQTT publish failed: {pub_err}"
+                }), 502
             policy_engine.record_dispatch(final_command, device, log_id=log_id)
             policy_engine.audit(
                 event_type="APPROVE",
@@ -587,8 +595,14 @@ def approve_mitigation():
             )
 
             new_action = str(action_taken) + " [EJECUTADO]"
-            c.execute("UPDATE logs SET status = 'APPROVED', accion_tomada = ? WHERE id = ?", (new_action, log_id))
-            message = f"Comando ejecutado ({classification.level.label()})."
+            # NOTE: estado_mitigacion se resetea para que el front sepa que
+            # estamos esperando la respuesta de PI-4 (round-trip). El
+            # coordinador lo rellenara en cuanto llegue el /respuesta.
+            c.execute(
+                "UPDATE logs SET status = 'APPROVED', accion_tomada = ?, estado_mitigacion = NULL WHERE id = ?",
+                (new_action, log_id),
+            )
+            message = f"Comando despachado ({classification.level.label()}). Esperando confirmacion de PI-4."
 
         elif action == 'reject':
             new_action = str(action_taken) + " [RECHAZADO]"
@@ -609,10 +623,64 @@ def approve_mitigation():
             
         conn.commit()
         conn.close()
-        return jsonify({"status": "success", "message": message})
-        
+        # Para approve devolvemos 'dispatching' (el front debera consultar
+        # /api/mitigate/status/<log_id> para saber si PI-4 ejecuto y con que
+        # resultado). Para reject devolvemos 'success' directamente porque
+        # no hay nada que verificar en el sensor.
+        response_status = "dispatching" if action == "approve" else "success"
+        return jsonify({
+            "status": response_status,
+            "message": message,
+            "log_id": log_id,
+        })
+
     except Exception as e:
         logger.error(f"[ERROR] Failed to process mitigation approval: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/mitigate/status/<int:log_id>', methods=['GET'])
+@auth.login_required
+def mitigation_status(log_id):
+    """
+    Devuelve el estado actual del round-trip HITL para una fila concreta.
+
+    El front lo consulta cada segundo tras aprobar/revertir un comando
+    hasta que estado_mitigacion deje de estar vacio (PI-4 ya respondio) o
+    se cumpla el timeout del cliente.
+    """
+    try:
+        conn = _get_connection()
+        c = conn.cursor()
+        c.execute(
+            "SELECT status, accion_tomada, estado_mitigacion FROM logs WHERE id = ?",
+            (log_id,),
+        )
+        row = c.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"status": "error", "message": "Log not found"}), 404
+        row_status, action_taken, mitigation_state = row
+        has_feedback = bool(mitigation_state and str(mitigation_state).strip())
+        if has_feedback:
+            ms = str(mitigation_state)
+            if "[FALLO]" in ms:
+                phase = "failed"
+            elif "[EXITO]" in ms:
+                phase = "executed"
+            else:
+                phase = "feedback"
+        else:
+            phase = "awaiting_pi4"
+        return jsonify({
+            "log_id": log_id,
+            "row_status": row_status,
+            "phase": phase,
+            "accion_tomada": action_taken,
+            "estado_mitigacion": mitigation_state,
+        })
+    except Exception as e:
+        logger.error(f"[ERROR] mitigation_status: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/revert/<int:log_id>', methods=['POST'])
@@ -672,7 +740,15 @@ def revert_action(log_id):
             f"[INFO] Sending revert ({revert_classification.level.label()}) "
             f"to {topic}: {revert_command}"
         )
-        mqtt_client.publish(topic, action_payload)
+        try:
+            mqtt_client.publish(topic, action_payload, wait_for_ack=True)
+        except Exception as pub_err:
+            logger.error(f"[ERROR] Publish revert fallo: {pub_err}")
+            conn.close()
+            return jsonify({
+                "status": "error",
+                "message": f"MQTT publish failed: {pub_err}"
+            }), 502
         policy_engine.record_dispatch(revert_command, device, log_id=log_id)
         policy_engine.audit(
             event_type="REVERT",
@@ -691,7 +767,12 @@ def revert_action(log_id):
         for attempt in range(max_retries):
             try:
                 try:
-                    c.execute("UPDATE logs SET accion_tomada = ?, status = 'REVERTED' WHERE id = ?", (new_action, log_id))
+                    # estado_mitigacion se limpia para que el front detecte el
+                    # round-trip pendiente del revert (mismo mecanismo que approve).
+                    c.execute(
+                        "UPDATE logs SET accion_tomada = ?, status = 'REVERTED', estado_mitigacion = NULL WHERE id = ?",
+                        (new_action, log_id),
+                    )
                 except sqlite3.OperationalError as op_err:
                     if "no such column" in str(op_err).lower():
                         c.execute("UPDATE logs SET accion_tomada = ? WHERE id = ?", (new_action, log_id))
@@ -707,8 +788,12 @@ def revert_action(log_id):
                     raise e
                     
         conn.close()
-        
-        return jsonify({"status": "success", "message": "Revert command sent"})
+
+        return jsonify({
+            "status": "dispatching",
+            "message": "Revert despachado. Esperando confirmacion de PI-4.",
+            "log_id": log_id,
+        })
         
     except Exception as e:
         logger.error(f"[ERROR] Failed to revert action {log_id}: {e}")

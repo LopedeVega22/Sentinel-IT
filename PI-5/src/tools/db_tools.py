@@ -111,6 +111,67 @@ def register_alert(device: str, attack_vector: str, source_ip: str, severity: st
                 conn.close()
     return {"status": "error", "message": "Database timeout after retries"}
 
+def mark_mitigation_result(log_id: int, mitigation_status: str, command_result: str) -> dict:
+    """
+    Actualiza estado_mitigacion en la fila concreta identificada por log_id.
+
+    A diferencia de update_alert_status (que escribe en la fila mas reciente del
+    dispositivo y depende de que el feedback_agent procese el batch), este
+    metodo es la via rapida del round-trip HITL: el coordinador lo invoca en
+    cuanto llega una respuesta de PI-4 que correlaciona con un dispatch
+    conocido, para que el dashboard vea el resultado en el siguiente poll
+    (1 segundo) en lugar de esperar el flush del batch (15 s) y la latencia
+    del LLM.
+
+    Args:
+        log_id: ID exacto de la fila en logs.
+        mitigation_status: 'EXITO' o 'FALLO'.
+        command_result: salida literal de la terminal en PI-4.
+    """
+    for attempt in range(5):
+        conn = None
+        try:
+            conn = sqlite3.connect(DB_PATH, timeout=15.0, check_same_thread=False)
+            conn.execute('PRAGMA journal_mode=WAL;')
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                UPDATE logs
+                SET estado_mitigacion = CASE
+                    WHEN estado_mitigacion IS NULL OR estado_mitigacion = '' THEN ?
+                    ELSE estado_mitigacion || ?
+                END
+                WHERE id = ?
+                ''',
+                (
+                    f"[{mitigation_status}] {command_result}",
+                    f"\n[{mitigation_status}] {command_result}",
+                    log_id,
+                ),
+            )
+            rowcount = cursor.rowcount
+            conn.commit()
+            if rowcount > 0:
+                logger.info(
+                    f"[INFO] Round-trip OK: log_id={log_id} -> {mitigation_status}"
+                )
+                return {"status": "success", "rowcount": rowcount}
+            return {"status": "warning", "message": f"No row with id={log_id}"}
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and attempt < 4:
+                time.sleep(1)
+                continue
+            logger.error(f"[ERROR] mark_mitigation_result: {e}")
+            return {"status": "error", "message": str(e)}
+        except Exception as e:
+            logger.error(f"[ERROR] mark_mitigation_result: {e}")
+            return {"status": "error", "message": str(e)}
+        finally:
+            if conn:
+                conn.close()
+    return {"status": "error", "message": "Database timeout after retries"}
+
+
 def update_alert_status(device: str, command_result: str, mitigation_status: str) -> dict:
     """
     Actualiza el estado de mitigación del último evento registrado para un dispositivo, 

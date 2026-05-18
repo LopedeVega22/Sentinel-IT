@@ -412,17 +412,33 @@ def verify_feedback(executed_cmd: str, device: str) -> str:
     Devuelve 'MATCH' si el comando ejecutado por PI-4 coincide con alguno
     emitido recientemente para ese dispositivo; 'ANOMALY' en otro caso.
     """
+    return "MATCH" if match_feedback(executed_cmd, device) else "ANOMALY"
+
+
+def match_feedback(executed_cmd: str, device: str) -> Optional[dict]:
+    """
+    Variante de verify_feedback que devuelve la entrada de dispatch completa
+    (incluyendo log_id) para correlacionar respuestas de PI-4 con la fila
+    original de logs. Devuelve None si no hay match.
+
+    Si hay varios despachos del mismo comando, devuelve el mas reciente
+    (es el unico viable, dado que PI-4 no incluye un identificador en su
+    respuesta y la cache es FIFO).
+    """
     norm = _normalize_for_match(executed_cmd)
     now = time.time()
+    best = None
     with _dispatch_lock:
         for entry in _dispatch_cache:
             if entry["device"] != device:
                 continue
             if now - entry["ts"] >= _DISPATCH_TTL_SECONDS:
                 continue
-            if entry["cmd"] == norm:
-                return "MATCH"
-    return "ANOMALY"
+            if entry["cmd"] != norm:
+                continue
+            if best is None or entry["ts"] > best["ts"]:
+                best = entry
+    return dict(best) if best else None
 
 
 def _normalize_for_match(cmd: str) -> str:

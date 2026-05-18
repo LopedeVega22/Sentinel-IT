@@ -149,6 +149,36 @@ class TestRoundTrip(unittest.TestCase):
         verdict = policy_engine.verify_feedback("cat /tmp/x", "Pi4-Felix")
         self.assertEqual(verdict, "MATCH")
 
+    def test_match_feedback_devuelve_log_id_para_correlacion(self):
+        # El fast-path del coordinador necesita recuperar el log_id original
+        # del dispatch para escribir estado_mitigacion en la fila correcta.
+        policy_engine.record_dispatch(
+            "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre 'Admin'",
+            "Pi4-Felix",
+            log_id=42,
+        )
+        match = policy_engine.match_feedback(
+            "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre 'Admin'",
+            "Pi4-Felix",
+        )
+        self.assertIsNotNone(match)
+        self.assertEqual(match["log_id"], 42)
+
+    def test_match_feedback_devuelve_el_dispatch_mas_reciente(self):
+        # Si el operador aprueba el mismo comando dos veces (porque revertio
+        # y volvio a aplicarlo), el feedback debe correlacionar con el ultimo
+        # dispatch — el primero ya quedo cerrado.
+        policy_engine.record_dispatch("cat /tmp/x", "Pi4-Felix", log_id=1)
+        import time as _time
+        _time.sleep(0.01)
+        policy_engine.record_dispatch("cat /tmp/x", "Pi4-Felix", log_id=2)
+        match = policy_engine.match_feedback("cat /tmp/x", "Pi4-Felix")
+        self.assertIsNotNone(match)
+        self.assertEqual(match["log_id"], 2)
+
+    def test_match_feedback_none_si_no_hay_dispatch(self):
+        self.assertIsNone(policy_engine.match_feedback("whoami", "Pi4-Felix"))
+
 
 class TestAuditLogInmutable(unittest.TestCase):
     """

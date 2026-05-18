@@ -12,7 +12,7 @@ from agents.triage_agent.triage_agent import triage_agent
 from agents.feedback_agent.feedback_agent import feedback_agent
 from tools.iot_tools import init_iot_tools
 from tools import policy_engine
-from tools.db_tools import register_alert
+from tools.db_tools import register_alert, mark_mitigation_result
 
 # ADK imports (google-adk >= 0.3)
 from google.adk.runners import Runner
@@ -234,8 +234,8 @@ def process_event(topic, payload, **kwargs):
         if queue_type == "feedback":
             executed_cmd = data.get("comando") or data.get("command") or ""
             if executed_cmd:
-                verdict = policy_engine.verify_feedback(executed_cmd, source_device)
-                if verdict == "ANOMALY":
+                match = policy_engine.match_feedback(executed_cmd, source_device)
+                if match is None:
                     logger.warning(
                         f"[POLICY] Round-trip ANOMALY desde {source_device}: comando "
                         f"'{executed_cmd}' no fue emitido por el coordinador."
@@ -263,6 +263,35 @@ def process_event(topic, payload, **kwargs):
                         decision_reason="Comando no presente en cache de despachos",
                     )
                     return  # No encolamos: se ha tratado como incidente, no como feedback.
+
+                # Round-trip OK: escribimos estado_mitigacion DIRECTAMENTE en la
+                # fila original (log_id conocido por el dispatch cache). Esto
+                # es la "via rapida" que permite al dashboard ver el resultado
+                # en el siguiente poll (~1 s) sin esperar al flush del batch
+                # del feedback_agent ni a la latencia del LLM. El agente sigue
+                # recibiendo el evento para su analisis posterior.
+                if match.get("log_id") is not None:
+                    pi4_status = (data.get("status") or "").lower()
+                    if pi4_status in ("success", "ok", "exito", "éxito"):
+                        mitigation_status = "EXITO"
+                    elif pi4_status in ("error", "fail", "failed", "fallo"):
+                        mitigation_status = "FALLO"
+                    else:
+                        mitigation_status = "EXITO" if not data.get("error") else "FALLO"
+                    output = (
+                        data.get("output")
+                        or data.get("salida")
+                        or data.get("resultado")
+                        or ""
+                    )
+                    try:
+                        mark_mitigation_result(
+                            log_id=match["log_id"],
+                            mitigation_status=mitigation_status,
+                            command_result=str(output)[:2000],
+                        )
+                    except Exception as fast_err:
+                        logger.error(f"[POLICY] Fast-path mitigation update fallo: {fast_err}")
 
         queue = _feedback_queue if queue_type == "feedback" else _triage_queue
 

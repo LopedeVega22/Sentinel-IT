@@ -43,3 +43,50 @@ The SQLite `logs` table (`src/database.py`) manages the mitigation lifecycle.
 6. The human operator opens the Dashboard, clicks "Revisar Mitigación" on the live feed.
 7. The operator edits the command if necessary and clicks "Ejecutar Comando".
 8. The command is published via AWS IoT Core MQTT back to the PI-4 for native execution.
+
+## Synchronous Publish on Approval (PUBACK gating)
+
+The dashboard cannot afford fire-and-forget semantics on the approval step. If the MQTT publish were merely queued in the awscrt event loop, a silent disconnection or an AWS IoT policy rejection would leave the operator with a green "Mitigación aplicada correctamente" toast while the command never reaches PI-4.
+
+To prevent that, `dashboard_soc.py` calls `mqtt_client.publish(topic, payload, wait_for_ack=True)` in both `approve_mitigation` and `revert_action`. The helper blocks until QoS 1 PUBACK is received from AWS IoT (5 s timeout) and raises on failure. The endpoint then:
+
+- On success: writes `status='APPROVED'` (or `'REVERTED'`) and returns `200`.
+- On failure: returns `502 Bad Gateway` with the publish error, **without** touching the database. The row stays `PENDING` so the operator can retry once connectivity is restored.
+
+The agent-driven publishes inside `iot_tools.py` (diagnostic reads, LOW auto-execution) keep the default fire-and-forget mode to avoid blocking the ADK runner thread. See [`funcionamiento_mqtt.md`](funcionamiento_mqtt.md#modos-de-publicación-asíncrono-vs-síncrono-puback) for the full comparison.
+
+## End-to-end Round-trip Verification
+
+PUBACK from AWS proves the broker accepted the message, **not** that PI-4 executed it. The HITL flow closes that loop using the sensor's own `seguridad/<device>/respuesta` channel and a per-row correlation key.
+
+### Flow on approval
+
+1. Dashboard POST `/api/mitigate/approve` (or `/revert/<id>`).
+2. Backend re-classifies the edited command, publishes with `wait_for_ack=True`, records the dispatch in `policy_engine._dispatch_cache` (cmd + device + `log_id` + timestamp), and UPDATEs the row to `status='APPROVED'`, `estado_mitigacion=NULL`.
+3. Response: `200 {status: 'dispatching', log_id}` (not `'success'`).
+4. Frontend opens a 30-second poll loop on `/api/mitigate/status/<log_id>`, showing a blue "Esperando confirmación de PI-4..." toast.
+
+### Flow on PI-4 response
+
+5. PI-4 executes the command and publishes the result.
+6. `main_coordinator.process_event` receives `seguridad/+/respuesta` and calls `policy_engine.match_feedback(executed_cmd, device)`. The dispatch cache is normalized for whitespace, so `"cmd "` (trailing space from PI-4 echo) still matches `"cmd"`.
+7. If a match exists, the coordinator calls `db_tools.mark_mitigation_result(log_id, 'EXITO'|'FALLO', output)` — synchronous SQLite write, no batch, no LLM. The row's `estado_mitigacion` is populated within ~10 ms of MQTT receipt.
+8. The same `/respuesta` message is still enqueued for the feedback_agent so the LLM gets the analytical context.
+
+### Flow on the dashboard
+
+9. Within 1 s the frontend poll sees `phase='executed'` (or `'failed'`) and shows a green toast: *"PI-4 confirmó la ejecución del comando."* The row refreshes with the result attached.
+10. If 30 s pass without a populated `estado_mitigacion`, the frontend gives up with a red toast: *"Sin respuesta de PI-4 tras 30s. Revisa la conectividad del sensor."* The row stays `APPROVED` with empty mitigation state so the operator can retry.
+
+### Anomaly path (zero-trust)
+
+If `match_feedback` returns `None` — meaning PI-4 reported executing something the coordinator never dispatched — the message is treated as a potential **command injection** event:
+- A `Critica` alert with vector `INTRUSION-COMMAND-INJECTION` is inserted in `logs`.
+- An `ANOMALY` event is appended to `audit_log`.
+- The message is **not** enqueued for the feedback agent (it isn't a legitimate response, so analyzing it would contaminate the agent's context).
+
+This guards against scenarios where PI-4 credentials are leaked and an attacker triggers an execution outside the SOC's control.
+
+### Why correlation is by command string, not by UUID
+
+Modifying PI-4 to echo back a `command_id` would be the textbook solution but requires changes in the sensor codebase (maintained by a different teammate). Instead, we correlate by `(device, normalized_command)` against a TTL cache (5 min) of recent dispatches. The trade-off: if the same command is dispatched twice within the TTL, we match against the most recent one. In practice the HITL flow makes duplicate dispatches rare; for safety the cache stores the timestamp so we always pick the latest match.
