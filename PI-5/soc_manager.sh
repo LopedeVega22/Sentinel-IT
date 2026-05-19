@@ -36,6 +36,15 @@ function check_root() {
 function verify_prerequisites() {
     local needs_restart=false
     
+    # Actualizar pip a la última versión si está instalado
+    if command -v pip3 &> /dev/null; then
+        echo -e "${YELLOW}[INFO] Comprobando actualizaciones de pip...${NC}"
+        pip3 install --upgrade pip --quiet || sudo pip3 install --upgrade pip --quiet || true
+    elif command -v pip &> /dev/null; then
+        echo -e "${YELLOW}[INFO] Comprobando actualizaciones de pip...${NC}"
+        pip install --upgrade pip --quiet || sudo pip install --upgrade pip --quiet || true
+    fi
+    
     if ! command -v git &> /dev/null; then
         echo -e "${YELLOW}[INFO] Git no encontrado. Instalando...${NC}"
         sudo apt-get update -qq && sudo apt-get install -y -qq git

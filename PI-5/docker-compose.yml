@@ -13,6 +13,9 @@ services:
     restart: unless-stopped
     ports:
       - "5000:5000"   # Dashboard Web Flask
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
       # Base de datos persistente: sobrevive a reinicios del contenedor
       - soc_data_volume:/app/data

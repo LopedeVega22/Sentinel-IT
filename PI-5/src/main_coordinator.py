@@ -365,9 +365,22 @@ if __name__ == "__main__":
         client_id=CLIENT_ID
     )
 
-    try:
-        global_iot_client.connect()
+    # Retry connection with exponential backoff on startup to handle DNS or network availability delay
+    connected = False
+    retry_delay = 2
+    max_delay = 60
 
+    logger.info("[INFO] Conectando cliente IoT...")
+    while not connected:
+        try:
+            global_iot_client.connect()
+            connected = True
+        except Exception as e:
+            logger.warning(f"[WARNING] Fallo en la conexion inicial a AWS IoT: {e}. Reintentando en {retry_delay}s...")
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, max_delay)
+
+    try:
         # Inject IoT client into ADK tools (Dependency Injection)
         init_iot_tools(global_iot_client)
 
