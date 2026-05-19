@@ -38,6 +38,38 @@ class AWSMqttClient:
         self.connection = mqtt_connection
         print(f"[SUCCESS] Cliente [{self.client_id}] conectado con exito.")
 
+    def is_alive(self):
+        """
+        Comprueba si la conexion MQTT subyacente sigue viva.
+        Devuelve False si no existe conexion o si el socket interno
+        ya no esta operativo (zombie state tras caida de red/DNS).
+        """
+        if self.connection is None:
+            return False
+        try:
+            # El SDK de awscrt expone _binding como handle nativo.
+            # Si el handle es None la conexion ya fue liberada.
+            binding = getattr(self.connection, '_binding', None)
+            if binding is None:
+                return False
+            return True
+        except Exception:
+            return False
+
+    def disconnect(self):
+        """
+        Desconecta limpiamente el cliente MQTT para permitir reconexion.
+        """
+        if self.connection is not None:
+            try:
+                disconnect_future = self.connection.disconnect()
+                disconnect_future.result(timeout=3.0)
+            except Exception:
+                pass  # Best-effort: la conexion puede ya estar muerta
+            finally:
+                self.connection = None
+        print(f"[INFO] Cliente [{self.client_id}] desconectado.")
+
     def publish(self, topic, payload_dict, wait_for_ack=False, ack_timeout=5.0):
         """
         Publica un mensaje en formato JSON al topic especificado.
@@ -60,6 +92,13 @@ class AWSMqttClient:
                 raise RuntimeError("MQTT connection not established")
             return
 
+        if not self.is_alive():
+            print("[ERROR] Conexion MQTT zombie detectada en publish.")
+            self.connection = None
+            if wait_for_ack:
+                raise RuntimeError("MQTT connection is dead (zombie state)")
+            return
+
         message_json = json.dumps(payload_dict)
         publish_future, _packet_id = self.connection.publish(
             topic=topic,
@@ -68,7 +107,14 @@ class AWSMqttClient:
         )
 
         if wait_for_ack:
-            publish_future.result(timeout=ack_timeout)
+            try:
+                publish_future.result(timeout=ack_timeout)
+            except Exception as e:
+                # Si el future falla, la conexion probablemente murio.
+                # Limpiamos para que get_mqtt_client() fuerce reconexion.
+                self.connection = None
+                error_msg = str(e) if str(e).strip() else "PUBACK timeout or connection lost"
+                raise RuntimeError(f"MQTT publish failed: {error_msg}") from e
             print(f"[INFO] Mensaje publicado y confirmado (PUBACK) en {topic}")
         else:
             print(f"[INFO] Mensaje publicado en {topic}")

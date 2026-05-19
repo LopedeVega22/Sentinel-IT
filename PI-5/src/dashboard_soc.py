@@ -51,8 +51,18 @@ def get_mqtt_client(max_attempts=4, initial_delay=1.0):
     que el endpoint HTTP no se cuelgue indefinidamente.
     """
     global mqtt_client, mqtt_init_error
-    if mqtt_client is not None and getattr(mqtt_client, 'connection', None) is not None:
+    if mqtt_client is not None and mqtt_client.is_alive():
         return mqtt_client
+
+    # Si el cliente existe pero está muerto (zombie), lo desconectamos
+    # limpiamente para liberar recursos antes de reconectar.
+    if mqtt_client is not None:
+        logger.warning("[WARNING] MQTT dashboard client is zombie — disconnecting before reconnect.")
+        try:
+            mqtt_client.disconnect()
+        except Exception:
+            pass
+        mqtt_client = None
 
     ENDPOINT = config['aws']['endpoint']
     CLIENT_ID = "Dashboard-SOC-Pi5"
@@ -510,7 +520,7 @@ def index():
     vector_stats = get_vector_stats()
     unique_vectors = get_unique_vectors()
     threat_level = get_threat_level()
-    mqtt_status = "connected" if (mqtt_client and getattr(mqtt_client, 'connection', None) is not None) else "disconnected"
+    mqtt_status = "connected" if (mqtt_client and mqtt_client.is_alive()) else "disconnected"
     sys_info = get_sys_info()
     topology_data = get_topology_data()
     
@@ -537,7 +547,7 @@ def api_data():
     vector_stats = get_vector_stats()
     unique_vectors = get_unique_vectors()
     threat_level = get_threat_level()
-    mqtt_status = "connected" if (mqtt_client and getattr(mqtt_client, 'connection', None) is not None) else "disconnected"
+    mqtt_status = "connected" if (mqtt_client and mqtt_client.is_alive()) else "disconnected"
     sys_info = get_sys_info()
     topology_data = get_topology_data()
     
@@ -561,7 +571,7 @@ def api_data():
 def approve_mitigation():
     """Endpoint to approve, edit, or reject a pending mitigation command."""
     get_mqtt_client()
-    if not mqtt_client or getattr(mqtt_client, 'connection', None) is None:
+    if not mqtt_client or not mqtt_client.is_alive():
         return jsonify({"status": "error", "message": "MQTT client not connected"}), 500
         
     try:
@@ -738,7 +748,7 @@ def mitigation_status(log_id):
 def revert_action(log_id):
     """Reverts a block action by sending the inverse iptables command via MQTT."""
     get_mqtt_client()
-    if not mqtt_client or getattr(mqtt_client, 'connection', None) is None:
+    if not mqtt_client or not mqtt_client.is_alive():
         logger.error(f"[ERROR] No active MQTT connection for revert: {mqtt_init_error}")
         return jsonify({"status": "error", "message": "MQTT client not connected"}), 500
         
