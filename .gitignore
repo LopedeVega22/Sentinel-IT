@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+ENV/
+env/
+.env
+*.db
+
+# Agents & Tools
+.agents/
+graphify-out/
+basura/
+ssh_run.py
+skills-lock.json
+
+# Logs
+*.log
+
+# Secretos: claves privadas (firmas, certificados). NUNCA comitear.
+*.key
+*.pem
+!*.pub
+
+# Projects
+PI-4/
+.gitignore

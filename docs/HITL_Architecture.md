@@ -55,6 +55,10 @@ To prevent that, `dashboard_soc.py` calls `mqtt_client.publish(topic, payload, w
 
 The agent-driven publishes inside `iot_tools.py` (diagnostic reads, LOW auto-execution) keep the default fire-and-forget mode to avoid blocking the ADK runner thread. See [`funcionamiento_mqtt.md`](funcionamiento_mqtt.md#modos-de-publicación-asíncrono-vs-síncrono-puback) for the full comparison.
 
+### Zombie connection detection
+
+Before each HITL publish, `get_mqtt_client()` calls `AWSMqttClient.is_alive()` to detect "zombie" connections — where the Python object exists but the underlying TCP/TLS socket is dead. If detected, the zombie is disconnected and a fresh connection is established with exponential backoff. This prevents the 502 errors that occur when the dashboard's MQTT connection dies silently after a transient network failure. See [MQTT_Resilience.md](MQTT_Resilience.md) for the full architecture.
+
 ## End-to-end Round-trip Verification
 
 PUBACK from AWS proves the broker accepted the message, **not** that PI-4 executed it. The HITL flow closes that loop using the sensor's own `seguridad/<device>/respuesta` channel and a per-row correlation key.
