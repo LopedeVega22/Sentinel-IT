@@ -8,7 +8,8 @@ import logging
 import sys
 import queue
 from AWSIoTPythonSDK.MQTTLib import AWSIoTMQTTClient
- 
+import signing
+
 # ==============================================================================
 # LOGGING
 # ==============================================================================
@@ -30,6 +31,9 @@ ENDPOINT  = "aj4wsdnimoej8-ats.iot.eu-north-1.amazonaws.com"
 CA_PATH   = "/home/lopex/pi4-felix/root-CA.crt"
 CERT_PATH = "/home/lopex/pi4-felix/Pi4-Felix.cert.pem"
 KEY_PATH  = "/home/lopex/pi4-felix/Pi4-Felix.private.key"
+# Clave publica Ed25519 del coordinador PI-5. Solo verifica; nunca firma.
+# El compañero PI-5 entrega el .pub generado por scripts/generate_signing_keys.py.
+SIGNING_PUB_PATH = "/home/lopex/pi4-felix/sentinel_pi5_signing.pub"
  
 # Topics
 TOPIC_EVENTOS    = "seguridad/Pi4-Felix/evento"
@@ -152,11 +156,30 @@ def on_accion(client, userdata, message):
         payload = {"raw": str(message.payload)}
  
     logger.info(f"[ACCION:{exec_id}] topic={message.topic} payload={payload}")
- 
+
     if not isinstance(payload, dict):
         logger.warning("Payload no es un dict, ignorando.")
         return
- 
+
+    # --- Verificacion criptografica de origen (Ed25519) ---
+    # Solo ejecutamos ordenes firmadas por PI-5. Comprometer PI-4 no permite
+    # forjar comandos: aqui solo tenemos la clave publica.
+    ok, motivo_firma = signing.verify_payload(payload)
+    if not ok:
+        ts_now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        logger.error(f"[ACCION:{exec_id}] COMANDO RECHAZADO POR FIRMA: {motivo_firma}")
+        publicar(TOPIC_RESPUESTAS, {
+            "timestamp": ts_now,
+            "sensor":    CLIENT_ID,
+            "tipo":      "RESULTADO_COMANDO",
+            "accion":    payload.get("accion") or payload.get("action", ""),
+            "comando":   payload.get("comando") or payload.get("command", ""),
+            "status":    "rejected_signature",
+            "resultado": {"error": motivo_firma, "exitcode": -1},
+            "original_topic": message.topic,
+        })
+        return
+
     accion  = payload.get("accion") or payload.get("action", "")
     comando = payload.get("comando") or payload.get("command")
     motivo  = payload.get("motivo") or payload.get("reason", "")
@@ -367,6 +390,10 @@ def hilo_envio_periodico():
 # BUCLE PRINCIPAL
 # ==============================================================================
 def monitorizar():
+    # Cargar la clave publica antes de suscribirse: preferimos fallar al
+    # arrancar a procesar comandos sin verificar.
+    signing.load_public_key(SIGNING_PUB_PATH)
+
     # Suscripción a acciones del modelo de IA
     # El SDK gestiona el loop en background; solo pasar callback aquí.
     mqtt_client.subscribe(TOPIC_ACCIONES, 1, callback=on_accion)

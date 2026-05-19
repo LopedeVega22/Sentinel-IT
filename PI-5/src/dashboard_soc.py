@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import time
 import yaml
 import logging
 import json
@@ -10,6 +11,7 @@ from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from aws_connector import AWSMqttClient
 from tools import policy_engine
+from tools import signing
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), '.env'))
@@ -36,26 +38,73 @@ logger.addHandler(logging.StreamHandler())
 # MQTT client initialization for remote actions
 mqtt_client = None
 mqtt_init_error = None
-try:
+TOPIC_PUBLISH_COMANDO = config['mqtt']['topic_publish_comando']
+
+def get_mqtt_client(max_attempts=4, initial_delay=1.0):
+    """
+    Devuelve un cliente MQTT vivo. Si la conexion previa cayo o nunca se
+    establecio, reintenta con backoff exponencial. La red del entorno
+    actual sufre fallos transitorios de DNS (AWS_IO_DNS_QUERY_FAILED) y un
+    unico intento no es suficiente: el operador veria un 500 en el HITL.
+
+    El budget total es deliberadamente acotado (~7-15s con 4 intentos) para
+    que el endpoint HTTP no se cuelgue indefinidamente.
+    """
+    global mqtt_client, mqtt_init_error
+    if mqtt_client is not None and getattr(mqtt_client, 'connection', None) is not None:
+        return mqtt_client
+
     ENDPOINT = config['aws']['endpoint']
     CLIENT_ID = "Dashboard-SOC-Pi5"
     CERT_PATH = os.path.join(BASE_DIR, config['aws']['cert_path'].replace('./', ''))
     KEY_PATH = os.path.join(BASE_DIR, config['aws']['key_path'].replace('./', ''))
     ROOT_CA = os.path.join(BASE_DIR, config['aws']['root_ca'].replace('./', ''))
-    TOPIC_PUBLISH_COMANDO = config['mqtt']['topic_publish_comando']
-    
-    mqtt_client = AWSMqttClient(
-        endpoint=ENDPOINT,
-        cert_path=CERT_PATH,
-        key_path=KEY_PATH,
-        root_ca_path=ROOT_CA,
-        client_id=CLIENT_ID
+
+    signing_key_cfg = config.get('signing', {}) or {}
+    SIGNING_KEY_PATH = os.path.join(
+        BASE_DIR,
+        signing_key_cfg.get('private_key_path', 'certificados/sentinel_pi5_signing.key')
     )
-    mqtt_client.connect()
-    logger.info("[INFO] MQTT dashboard connection established.")
-except Exception as e:
-    mqtt_init_error = str(e)
-    logger.warning(f"[WARNING] MQTT not available: {e}")
+    try:
+        signing.load_private_key(SIGNING_KEY_PATH)
+    except Exception as e:
+        mqtt_init_error = f"signing init failed: {e}"
+        logger.error(f"[ERROR] {mqtt_init_error}")
+        mqtt_client = None
+        return None
+
+    delay = initial_delay
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            candidate = AWSMqttClient(
+                endpoint=ENDPOINT,
+                cert_path=CERT_PATH,
+                key_path=KEY_PATH,
+                root_ca_path=ROOT_CA,
+                client_id=CLIENT_ID
+            )
+            candidate.connect()
+            mqtt_client = candidate
+            mqtt_init_error = None
+            logger.info(f"[INFO] MQTT dashboard connection established (attempt {attempt}).")
+            return mqtt_client
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                f"[WARNING] MQTT connect attempt {attempt}/{max_attempts} failed: {e}"
+            )
+            if attempt < max_attempts:
+                time.sleep(delay)
+                delay = min(delay * 2, 8.0)
+
+    mqtt_init_error = str(last_err)
+    logger.error(f"[ERROR] MQTT dashboard connection failed after {max_attempts} attempts: {last_err}")
+    mqtt_client = None
+    return None
+
+# Initial connection attempt (best effort, mas tolerante porque arranca en paralelo con DNS)
+get_mqtt_client(max_attempts=6, initial_delay=2.0)
 
 app = Flask(__name__)
 
@@ -461,7 +510,7 @@ def index():
     vector_stats = get_vector_stats()
     unique_vectors = get_unique_vectors()
     threat_level = get_threat_level()
-    mqtt_status = "connected" if mqtt_client else "disconnected"
+    mqtt_status = "connected" if (mqtt_client and getattr(mqtt_client, 'connection', None) is not None) else "disconnected"
     sys_info = get_sys_info()
     topology_data = get_topology_data()
     
@@ -488,7 +537,7 @@ def api_data():
     vector_stats = get_vector_stats()
     unique_vectors = get_unique_vectors()
     threat_level = get_threat_level()
-    mqtt_status = "connected" if mqtt_client else "disconnected"
+    mqtt_status = "connected" if (mqtt_client and getattr(mqtt_client, 'connection', None) is not None) else "disconnected"
     sys_info = get_sys_info()
     topology_data = get_topology_data()
     
@@ -511,6 +560,7 @@ def api_data():
 @auth.login_required
 def approve_mitigation():
     """Endpoint to approve, edit, or reject a pending mitigation command."""
+    get_mqtt_client()
     if not mqtt_client or getattr(mqtt_client, 'connection', None) is None:
         return jsonify({"status": "error", "message": "MQTT client not connected"}), 500
         
@@ -576,7 +626,8 @@ def approve_mitigation():
                 f"to {topic}: {final_command}"
             )
             try:
-                mqtt_client.publish(topic, action_payload, wait_for_ack=True)
+                signed_payload = signing.sign_payload(action_payload)
+                mqtt_client.publish(topic, signed_payload, wait_for_ack=True)
             except Exception as pub_err:
                 logger.error(f"[ERROR] Publish HITL fallo, no se actualiza DB: {pub_err}")
                 conn.close()
@@ -584,7 +635,6 @@ def approve_mitigation():
                     "status": "error",
                     "message": f"MQTT publish failed: {pub_err}"
                 }), 502
-            policy_engine.record_dispatch(final_command, device, log_id=log_id)
             policy_engine.audit(
                 event_type="APPROVE",
                 device=device,
@@ -687,6 +737,7 @@ def mitigation_status(log_id):
 @auth.login_required
 def revert_action(log_id):
     """Reverts a block action by sending the inverse iptables command via MQTT."""
+    get_mqtt_client()
     if not mqtt_client or getattr(mqtt_client, 'connection', None) is None:
         logger.error(f"[ERROR] No active MQTT connection for revert: {mqtt_init_error}")
         return jsonify({"status": "error", "message": "MQTT client not connected"}), 500
@@ -741,7 +792,8 @@ def revert_action(log_id):
             f"to {topic}: {revert_command}"
         )
         try:
-            mqtt_client.publish(topic, action_payload, wait_for_ack=True)
+            signed_payload = signing.sign_payload(action_payload)
+            mqtt_client.publish(topic, signed_payload, wait_for_ack=True)
         except Exception as pub_err:
             logger.error(f"[ERROR] Publish revert fallo: {pub_err}")
             conn.close()
@@ -749,7 +801,6 @@ def revert_action(log_id):
                 "status": "error",
                 "message": f"MQTT publish failed: {pub_err}"
             }), 502
-        policy_engine.record_dispatch(revert_command, device, log_id=log_id)
         policy_engine.audit(
             event_type="REVERT",
             device=device,
