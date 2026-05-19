@@ -18,7 +18,7 @@ No describe la arquitectura del coordinador — eso vive en [System_Overview.md]
 | Componente | Versión mínima | Notas |
 |------------|----------------|-------|
 | Raspberry Pi 5 | 4 GB RAM | Suficiente con perfil API; si usas Ollama local conviene 8 GB |
-| Sistema operativo | Raspberry Pi OS 64-bit (Debian 12 base) | Ubuntu Server 24.04 también vale |
+| Sistema operativo | Raspberry Pi OS 64-bit (Debian 12 base) | Ubuntu Server 26.04 también vale |
 | Docker | 24.x+ | El script `soc_manager.sh` lo instala vía `get.docker.com` si falta |
 | docker-compose-plugin | v2 | Idem, instalado por el script |
 | Git | Cualquiera | Solo para clonar el repo |
@@ -54,7 +54,7 @@ web:
   port: 5000
 
 agent:
-  model_name: "gemini-2.5-flash"   # solo se usa si AI_MODE != local
+  model_name: "gemini-3.1-flash"   # solo se usa si AI_MODE != local
 
 logging:
   file_path: "/tmp/coordinator_soc.log"
@@ -96,8 +96,8 @@ DASHBOARD_PASSWORD=cambiame_en_produccion
 # Modo del agente IA
 AI_MODE=api                            # api → Vertex/Gemini directo
                                        # local → Ollama vía LiteLLM (necesita perfil docker)
-AI_MODEL=gemini-2.5-flash              # solo si AI_MODE=api
-# AI_MODEL=ollama/llama3.1:8b          # si AI_MODE=local
+AI_MODEL=gemini-3.1-flash              # solo si AI_MODE=api
+# AI_MODEL=ollama/gemma4:2b            # si AI_MODE=local
 
 # Credenciales Gemini (solo si AI_MODE=api)
 GEMINI_API_KEY=...
@@ -193,7 +193,7 @@ volumes:
 ### 5.2 Dockerfile
 
 ```dockerfile
-FROM python:3.13-slim
+FROM python:3.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/src
 WORKDIR /app
 COPY requirements.txt .
@@ -231,19 +231,19 @@ Dos formas de alimentar a los agentes:
 
 ```ini
 AI_MODE=api
-AI_MODEL=gemini-2.5-flash
+AI_MODEL=gemini-3.1-flash
 GEMINI_API_KEY=AIza...
 ```
 
 - Latencia ~1-3 s por inferencia.
-- Coste por token. Modelos Gemini 2.5 son baratos pero medibles.
+- Coste por token. Modelos Gemini 3.1 son baratos pero medibles.
 - Calidad alta, requiere conexión a Internet.
 
 ### 6.2 Ollama local (perfil `local-ai`)
 
 ```ini
 AI_MODE=local
-AI_MODEL=ollama/llama3.1:8b   # ó cualquier modelo descargado en Ollama
+AI_MODEL=ollama/gemma4:2b     # ó cualquier modelo descargado en Ollama
 ```
 
 ```bash
@@ -251,13 +251,13 @@ docker compose --profile local-ai up -d --build
 # Esto levanta el segundo servicio `local-ai-engine` con Ollama en :11434
 
 # Descargar el modelo después de levantar:
-docker exec -it local-ai-engine ollama pull llama3.1:8b
+docker exec -it local-ai-engine ollama pull gemma4:2b
 ```
 
 - Sin coste por token.
-- Latencia mayor (depende del hardware; en una Pi 5 con 8 GB RAM y un Llama 3.1 8B se va a varias decenas de segundos).
+- Latencia mayor (depende del hardware; en una Pi 5 con 8 GB RAM y un Gemma 4 2B se va a varias decenas de segundos).
 - Sin conexión a Internet (excepto para descargar el modelo la primera vez).
-- Calidad inferior a Gemini 2.5 Flash para razonamiento estructurado con tools — usar con prudencia.
+- Calidad inferior a Gemini 3.1 Flash para razonamiento estructurado con tools — usar con prudencia.
 
 Ambos perfiles son intercambiables sin tocar código: solo se cambian `AI_MODE` y `AI_MODEL` en `.env` y se reinicia el contenedor.
 
@@ -277,7 +277,75 @@ tail -f PI-5/dashboard_soc.log
 docker logs -f soc-coordinator-pi5
 ```
 
-## 8. Networking y firewall
+## 8. Firma de comandos (Ed25519)
+
+Toda orden que el coordinador publica a un sensor lleva firma **Ed25519**. El sensor PI-4 verifica firma + ventana de validez + nonce antes de ejecutar; si algo falla, el comando se rechaza sin ejecución y se devuelve `status: "rejected_signature"` al coordinador. Esto sustituye al sistema anterior de detección reactiva `INTRUSION-COMMAND-INJECTION`.
+
+### 8.1 Generación de claves
+
+```bash
+python scripts/generate_signing_keys.py
+```
+
+Produce dos archivos:
+
+- `PI-5/certificados/sentinel_pi5_signing.key` — clave privada PEM, gitignored por `*.key`. **Nunca subir a git.**
+- `PI-4/Agente de monitorizacion/sentinel_pi5_signing.pub` — clave pública PEM, commiteable en el repo de PI-4.
+
+Para rotar:
+
+```bash
+python scripts/generate_signing_keys.py --force
+# Copiar la nueva .pub a la PI-4 y reiniciar ambos servicios
+```
+
+### 8.2 Formato del payload firmado
+
+```json
+{
+  "accion": "ejecutar_comando",
+  "comando": "sudo iptables -A INPUT -s 192.168.1.50 -j DROP",
+  "motivo": "Bloqueo de IP atacante",
+  "iat": 1747645000,
+  "exp": 1747645060,
+  "nonce": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "sig": "<base64 Ed25519>"
+}
+```
+
+- `iat` / `exp` — ventana de 60 s (configurable en `config.yml: signing.ttl_seconds`). Requiere NTP activo en ambos Pi.
+- `nonce` — UUID4. PI-4 mantiene una cache LRU para rechazar reenvíos dentro de la ventana.
+- `sig` — Ed25519 sobre el JSON canónico (`sort_keys=True`, `separators=(",", ":")`) sin el campo `sig`.
+
+### 8.3 Configuración
+
+`PI-5/config.yml`:
+
+```yaml
+signing:
+  private_key_path: "./certificados/sentinel_pi5_signing.key"
+  ttl_seconds: 60
+```
+
+`PI-4/Agente de monitorizacion/config.yml`:
+
+```yaml
+signing:
+  public_key_path: "./sentinel_pi5_signing.pub"
+```
+
+### 8.4 Comportamiento de rechazo
+
+Si `verify_payload()` falla en PI-4, el sensor publica en `comandos/<device>/out`:
+
+```json
+{"sensor": "...", "accion": "...", "comando": "...",
+ "status": "rejected_signature", "output": "<motivo>"}
+```
+
+El feedback_agent lo procesa como cualquier otro feedback — no es ya un vector de ataque ruidoso, sino una respuesta legítima de "comando descartado por integridad".
+
+## 9. Networking y firewall
 
 Puertos que el coordinador necesita:
 
@@ -290,7 +358,7 @@ Puertos que el coordinador necesita:
 
 Si el dashboard se expone fuera de la LAN, **poner un reverse proxy con TLS por delante** (Nginx, Caddy). Flask con HTTP Basic en claro sobre Internet no es seguro. Esa pieza queda fuera del scope del MVP.
 
-## 9. Variables de entorno (referencia)
+## 10. Variables de entorno (referencia)
 
 | Variable | Quién la lee | Valor por defecto | Comentario |
 |----------|--------------|-------------------|------------|
@@ -298,11 +366,11 @@ Si el dashboard se expone fuera de la LAN, **poner un reverse proxy con TLS por 
 | `DASHBOARD_PASSWORD` | `dashboard_soc.py` | (ninguno) | Si está, se hashea al arrancar |
 | `DASHBOARD_PASSWORD_HASH` | `dashboard_soc.py` | (ninguno) | Hash pre-computado (preferido) |
 | `AI_MODE` | `triage_agent.py`, `feedback_agent.py` | `api` | `local` para Ollama, `api` para Gemini |
-| `AI_MODEL` | idem | `gemini-2.5-flash` | Nombre exacto del modelo |
+| `AI_MODEL` | idem | `gemini-3.1-flash` | Nombre exacto del modelo |
 | `GEMINI_API_KEY` | Vertex/Gemini SDK | — | Necesario si `AI_MODE=api` |
 | `TZ` | Sistema | `Europe/Madrid` | Para timestamps en logs y BD |
 
-## 10. Primera puesta en marcha (checklist)
+## 11. Primera puesta en marcha (checklist)
 
 ```text
 [ ] Clonar el repo:
@@ -311,6 +379,9 @@ Si el dashboard se expone fuera de la LAN, **poner un reverse proxy con TLS por 
        - root-CA.crt
        - Pi5-dani.cert.pem
        - Pi5-dani.private.key
+[ ] Generar par de firma Ed25519:
+       python scripts/generate_signing_keys.py
+       (Copiar la .pub resultante al directorio del agente de PI-4)
 [ ] Crear PI-5/.env con DASHBOARD_PASSWORD y (si AI_MODE=api) GEMINI_API_KEY.
 [ ] Validar PI-5/config.yml: endpoint AWS correcto, db_path, batch sizing.
 [ ] sudo ./PI-5/soc_manager.sh → opción 1 (cloud) o 2 (local-ai).
@@ -319,7 +390,7 @@ Si el dashboard se expone fuera de la LAN, **poner un reverse proxy con TLS por 
 [ ] Comprobar en el dashboard que aparece la nueva fila en 5-20 s.
 ```
 
-## 11. Actualización en caliente
+## 12. Actualización en caliente
 
 Cambios en código:
 
@@ -337,7 +408,7 @@ Cambios solo en `config.yml` o en `.env`:
 docker compose restart soc-coordinator-pi5    # sin rebuild
 ```
 
-## 12. Archivos involucrados
+## 13. Archivos involucrados
 
 ```
 PI-5/
@@ -348,7 +419,7 @@ PI-5/
 │   ├── Pi5-dani.cert.pem
 │   └── Pi5-dani.private.key
 ├── docker-compose.yml          # Servicios coordinator + (perfil) Ollama
-├── Dockerfile                  # Python 3.13-slim + requirements
+├── Dockerfile                  # Python 3.14-slim + requirements
 ├── requirements.txt            # Dependencias Python
 ├── scripts/
 │   └── start_services.sh       # Lanza dashboard + coordinator en el contenedor

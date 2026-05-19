@@ -14,6 +14,12 @@ mqtt:
   # Plantilla para publicar comandos al sensor objetivo ({device} se sustituye en runtime)
   topic_publish_comando:      "seguridad/{device}/comando"
 
+signing:
+  # Clave privada Ed25519 para firmar comandos enviados a los sensores.
+  # Generar con: python scripts/generate_signing_keys.py
+  private_key_path: "./certificados/sentinel_pi5_signing.key"
+  ttl_seconds: 60  # Ventana de validez de cada comando firmado
+
 database:
   db_path: "data/soc_data.db"
 

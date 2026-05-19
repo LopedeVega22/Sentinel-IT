@@ -9,6 +9,26 @@
       "ataque": "Compromiso de Cuenta Web",
       "comando": "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre \"{nombre_usuario}\"",
       "explicacion": "Cierra de forma forzada y revoca todas las sesiones web activas asociadas al nombre de usuario indicado, destruyendo la sesión PHP y eliminando el registro para expulsar al atacante."
+    },
+    {
+      "ataque": "Bloqueo de IP atacante en la web (HTTP/HTTPS)",
+      "comando": "sudo iptables -A INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -A INPUT -p tcp -s {ip} --dport 8080 -j DROP",
+      "explicacion": "Bloquea tráfico TCP entrante desde la IP indicada en los puertos 80 y 8080. IMPORTANTE: hay que bloquear AMBOS puertos siempre — el 80 es solo el proxy que redirige internamente al 8080, donde está el servidor web real. Si solo bloqueas el 80, el atacante puede saltarse el filtro accediendo directamente al 8080."
+    },
+    {
+      "ataque": "Revertir bloqueo de IP en la web",
+      "comando": "sudo iptables -D INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -D INPUT -p tcp -s {ip} --dport 8080 -j DROP",
+      "explicacion": "Elimina las dos reglas iptables previas (puertos 80 y 8080) para una IP concreta. Usar tras confirmar falso positivo o cuando el atacante ya no es una amenaza."
+    },
+    {
+      "ataque": "Recuperación tras defacement o modificación no autorizada de la web",
+      "comando": "bash -c 'source /home/lopex/backup_env.sh && sudo -E restic restore latest --target / --include /var/www/html/sentinelti.com && sudo chown -R www-data:www-data /var/www/html/sentinelti.com'",
+      "explicacion": "Restaura los archivos de /var/www/html/sentinelti.com desde el snapshot restic más reciente almacenado en S3 y reaplica el ownership www-data. El env-file backup_env.sh carga las credenciales AWS antes de invocar restic. Acción destructiva (sobrescribe ficheros actuales): exige confirmación humana explícita."
+    },
+    {
+      "ataque": "Recuperación tras compromiso de BBDD (SQLi con escritura, borrado de tablas)",
+      "comando": "bash -c 'source /home/lopex/backup_env.sh && restic restore latest --target /home/lopex/restauracion_web --include /tmp/all_databases.sql && mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql'",
+      "explicacion": "Restaura el dump completo de bases de datos desde el último snapshot restic y lo reimporta con mysql. NOTA: el flag -p de mysql solicita contraseña interactiva, lo cual no funciona en ejecución vía subprocess; en producción real conviene sustituirlo por --defaults-file ~/.my.cnf o la variable de entorno MYSQL_PWD. Acción destructiva (reemplaza el estado de las BBDD): exige confirmación humana explícita."
     }
   ]
 }

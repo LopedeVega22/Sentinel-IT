@@ -11,8 +11,6 @@ from aws_connector import AWSMqttClient
 from agents.triage_agent.triage_agent import triage_agent
 from agents.feedback_agent.feedback_agent import feedback_agent
 from tools.iot_tools import init_iot_tools
-from tools import policy_engine
-from tools.db_tools import register_alert, mark_mitigation_result
 
 # ADK imports (google-adk >= 0.3)
 from google.adk.runners import Runner
@@ -201,6 +199,112 @@ def _batch_dispatcher(queue: LogBatchQueue, runner: Runner, queue_type: str):
 
 
 # ===========================================================================
+# Normalizacion del feedback de PI-4
+# ===========================================================================
+# Truncado del stdout/stderr antes de pasarselo al LLM. PI-4 ya trunca a
+# 4000 chars en su lado; aqui bajamos a 2000 para no inflar el contexto.
+_OUTPUT_MAX_CHARS = 2000
+
+
+def _truncate(text: str, limit: int = _OUTPUT_MAX_CHARS) -> str:
+    text = text or ""
+    return text if len(text) <= limit else text[:limit] + "...[truncado]"
+
+
+def _normalize_pi4_feedback(data: dict):
+    """
+    Traduce las distintas formas en que PI-4 puede publicar feedback a un
+    dict canonico de 5 campos: sensor, command, status, output, exitcode.
+
+    Devuelve None si el payload no parece feedback reconocible — en ese caso
+    el caller se queda con el JSON crudo (mejor que perderlo).
+    """
+    if not isinstance(data, dict):
+        return None
+
+    sensor = data.get("sensor") or data.get("dispositivo") or "Desconocido"
+    command = data.get("comando") or data.get("command") or ""
+    legacy_status = data.get("status")
+
+    # Caso 1: rechazo por firma (no es ni exito ni fallo de mitigacion).
+    if legacy_status == "rejected_signature":
+        motivo = ""
+        resultado = data.get("resultado")
+        if isinstance(resultado, dict):
+            motivo = resultado.get("error") or ""
+        if not motivo:
+            motivo = data.get("output") or ""
+        return {
+            "sensor": sensor,
+            "command": command,
+            "status": "rejected_signature",
+            "output": _truncate(motivo),
+            "exitcode": -1,
+        }
+
+    # Caso 2: forma nueva PI-4 v3 con dict 'resultado' anidado.
+    resultado = data.get("resultado")
+    if isinstance(resultado, dict):
+        exitcode = resultado.get("exitcode")
+        timed_out = bool(resultado.get("timed_out"))
+        stdout = resultado.get("stdout") or ""
+        stderr = resultado.get("stderr") or ""
+        if timed_out:
+            return {
+                "sensor": sensor,
+                "command": command,
+                "status": "error",
+                "output": _truncate(stderr or "timeout"),
+                "exitcode": int(exitcode) if exitcode is not None else -1,
+            }
+        if exitcode == 0:
+            return {
+                "sensor": sensor,
+                "command": command,
+                "status": "success",
+                "output": _truncate(stdout),
+                "exitcode": 0,
+            }
+        return {
+            "sensor": sensor,
+            "command": command,
+            "status": "error",
+            "output": _truncate(stderr or stdout),
+            "exitcode": int(exitcode) if exitcode is not None else -1,
+        }
+
+    # Caso 3: forma legacy plana (status + output sin nesting).
+    if legacy_status is not None and "output" in data:
+        status_lc = str(legacy_status).strip().lower()
+        if status_lc in ("success", "ok", "exito", "éxito"):
+            status_norm, exitcode = "success", 0
+        elif status_lc in ("error", "fail", "failed", "fallo"):
+            status_norm, exitcode = "error", 1
+        else:
+            status_norm, exitcode = status_lc or "error", -1
+        return {
+            "sensor": sensor,
+            "command": command,
+            "status": status_norm,
+            "output": _truncate(str(data.get("output") or "")),
+            "exitcode": exitcode,
+        }
+
+    return None
+
+
+def _format_normalized_feedback(norm: dict) -> str:
+    """Serializa el dict canonico como texto plano `clave: valor` para el LLM."""
+    return (
+        f"sensor: {norm['sensor']}\n"
+        f"command: {norm['command']}\n"
+        f"status: {norm['status']}\n"
+        f"exitcode: {norm['exitcode']}\n"
+        f"output: {norm['output']}"
+    )
+
+
+# ===========================================================================
 # MQTT Callback
 # ===========================================================================
 def process_event(topic, payload, **kwargs):
@@ -223,75 +327,18 @@ def process_event(topic, payload, **kwargs):
             
         # Las respuestas a comandos llegan a `seguridad/<device>/respuesta` y se enrutan
         # al feedback_agent. Telemetría y eventos van al triage_agent.
+        # La autenticidad del comando ejecutado se garantiza criptograficamente
+        # en PI-4 (firma Ed25519): si el sensor publica un feedback aqui es
+        # porque la firma del comando fue valida -> no necesitamos verificar
+        # round-trip a posteriori desde el coordinador.
         queue_type = "feedback" if topic.endswith("/respuesta") else "triage"
 
-        # --- Capa 3 del Policy Engine: round-trip verification ---
-        # Antes de encolar un feedback al feedback_agent, comprobamos que el
-        # comando que dice haberse ejecutado en PI-4 fue emitido desde aqui.
-        # Si no, levantamos un incidente INTRUSION-COMMAND-INJECTION y NO lo
-        # tratamos como feedback (de lo contrario, contaminariamos el estado
-        # de las mitigaciones legitimas con resultados de ordenes ajenas).
+        # En la rama de feedback normalizamos el payload de PI-4 a un texto
+        # plano y predecible para que el LLM no tenga que adivinar shapes.
         if queue_type == "feedback":
-            executed_cmd = data.get("comando") or data.get("command") or ""
-            if executed_cmd:
-                match = policy_engine.match_feedback(executed_cmd, source_device)
-                if match is None:
-                    logger.warning(
-                        f"[POLICY] Round-trip ANOMALY desde {source_device}: comando "
-                        f"'{executed_cmd}' no fue emitido por el coordinador."
-                    )
-                    try:
-                        register_alert(
-                            device=source_device,
-                            attack_vector="INTRUSION-COMMAND-INJECTION",
-                            source_ip="127.0.0.1",
-                            severity="Critica",
-                            verdict=(
-                                "El sensor reporto la ejecucion de un comando que "
-                                "el coordinador nunca emitio. Posible inyeccion via "
-                                "credenciales filtradas o suplantacion."
-                            ),
-                            raw_log=raw_log,
-                        )
-                    except Exception as alert_err:
-                        logger.error(f"[POLICY] No se pudo registrar la alerta INTRUSION: {alert_err}")
-                    policy_engine.audit(
-                        event_type="ANOMALY",
-                        device=source_device,
-                        command=executed_cmd,
-                        classification=None,
-                        decision_reason="Comando no presente en cache de despachos",
-                    )
-                    return  # No encolamos: se ha tratado como incidente, no como feedback.
-
-                # Round-trip OK: escribimos estado_mitigacion DIRECTAMENTE en la
-                # fila original (log_id conocido por el dispatch cache). Esto
-                # es la "via rapida" que permite al dashboard ver el resultado
-                # en el siguiente poll (~1 s) sin esperar al flush del batch
-                # del feedback_agent ni a la latencia del LLM. El agente sigue
-                # recibiendo el evento para su analisis posterior.
-                if match.get("log_id") is not None:
-                    pi4_status = (data.get("status") or "").lower()
-                    if pi4_status in ("success", "ok", "exito", "éxito"):
-                        mitigation_status = "EXITO"
-                    elif pi4_status in ("error", "fail", "failed", "fallo"):
-                        mitigation_status = "FALLO"
-                    else:
-                        mitigation_status = "EXITO" if not data.get("error") else "FALLO"
-                    output = (
-                        data.get("output")
-                        or data.get("salida")
-                        or data.get("resultado")
-                        or ""
-                    )
-                    try:
-                        mark_mitigation_result(
-                            log_id=match["log_id"],
-                            mitigation_status=mitigation_status,
-                            command_result=str(output)[:2000],
-                        )
-                    except Exception as fast_err:
-                        logger.error(f"[POLICY] Fast-path mitigation update fallo: {fast_err}")
+            norm = _normalize_pi4_feedback(data)
+            if norm is not None:
+                raw_log = _format_normalized_feedback(norm)
 
         queue = _feedback_queue if queue_type == "feedback" else _triage_queue
 

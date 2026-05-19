@@ -72,8 +72,8 @@ Every command you propose is classified automatically by the Policy Engine into 
 - There is no fixed blacklist. Focus on choosing the right command and writing a concrete rationale — the operator reads it together with the risk label.
 - Unknown commands default to LOW (auto-execute). They are NOT denied automatically.
 
-### INTRUSION ALERTS (round-trip anomaly):
-If you ever receive a log with `attack_vector="INTRUSION-COMMAND-INJECTION"`, it means the sensor reported executing a command that the coordinator never issued. Treat it as CRITICAL: register it via `register_alert` if it's not already registered, and reason about rotating credentials / revoking certificates rather than issuing further commands to the suspect device.
+### COMMAND INTEGRITY (Ed25519):
+Every command you publish via the tools is signed with the coordinator's Ed25519 private key. The PI-4 sensor verifies the signature, the time window, and an anti-replay nonce BEFORE executing. If the signature does not validate, PI-4 refuses to run the command and emits a `rejected_signature` feedback. You don't have to do anything special — the signing is transparent — but be aware that command authenticity is guaranteed cryptographically, so you can trust feedback events as coming from legitimately dispatched commands.
 
 ### MITIGATION PROTOCOLS & ZERO TRUST (HITL):
 

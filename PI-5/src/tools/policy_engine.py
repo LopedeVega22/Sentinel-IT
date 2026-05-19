@@ -25,7 +25,6 @@ import os
 import re
 import shlex
 import sqlite3
-import threading
 import time
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -380,78 +379,12 @@ def decide(cmd: str) -> Decision:
 
 
 # ---------------------------------------------------------------------------
-# Cache de comandos emitidos (round-trip)
-# ---------------------------------------------------------------------------
-_DISPATCH_TTL_SECONDS = 300  # 5 minutos
-_dispatch_lock = threading.Lock()
-_dispatch_cache: list = []  # lista de dicts: cmd, device, log_id, ts
-
-
-def record_dispatch(cmd: str, device: str, log_id: Optional[int] = None) -> None:
-    """
-    Registra un comando publicado a un dispositivo para verificar despues
-    contra el feedback que devuelve PI-4.
-    """
-    now = time.time()
-    with _dispatch_lock:
-        _dispatch_cache.append({
-            "cmd": _normalize_for_match(cmd),
-            "raw": cmd,
-            "device": device,
-            "log_id": log_id,
-            "ts": now,
-        })
-        # Limpiar entradas viejas
-        _dispatch_cache[:] = [
-            e for e in _dispatch_cache if now - e["ts"] < _DISPATCH_TTL_SECONDS
-        ]
-
-
-def verify_feedback(executed_cmd: str, device: str) -> str:
-    """
-    Devuelve 'MATCH' si el comando ejecutado por PI-4 coincide con alguno
-    emitido recientemente para ese dispositivo; 'ANOMALY' en otro caso.
-    """
-    return "MATCH" if match_feedback(executed_cmd, device) else "ANOMALY"
-
-
-def match_feedback(executed_cmd: str, device: str) -> Optional[dict]:
-    """
-    Variante de verify_feedback que devuelve la entrada de dispatch completa
-    (incluyendo log_id) para correlacionar respuestas de PI-4 con la fila
-    original de logs. Devuelve None si no hay match.
-
-    Si hay varios despachos del mismo comando, devuelve el mas reciente
-    (es el unico viable, dado que PI-4 no incluye un identificador en su
-    respuesta y la cache es FIFO).
-    """
-    norm = _normalize_for_match(executed_cmd)
-    now = time.time()
-    best = None
-    with _dispatch_lock:
-        for entry in _dispatch_cache:
-            if entry["device"] != device:
-                continue
-            if now - entry["ts"] >= _DISPATCH_TTL_SECONDS:
-                continue
-            if entry["cmd"] != norm:
-                continue
-            if best is None or entry["ts"] > best["ts"]:
-                best = entry
-    return dict(best) if best else None
-
-
-def _normalize_for_match(cmd: str) -> str:
-    """
-    Normaliza espacios en blanco para comparar comandos sin sufrir por
-    espacios extras. No toca el contenido semantico.
-    """
-    return " ".join((cmd or "").split())
-
-
-# ---------------------------------------------------------------------------
 # Audit log (append-only) — inmutabilidad asegurada por triggers en BD
 # ---------------------------------------------------------------------------
+# Nota: la cache de despachos (record_dispatch / match_feedback / verify_feedback)
+# se elimino al introducir firma Ed25519 en los comandos enviados a PI-4. Si un
+# sensor reporta un comando es porque la firma fue valida en su extremo, de
+# modo que el round-trip a posteriori dejo de ser necesario.
 def audit(
     event_type: str,
     device: str,

@@ -6,6 +6,7 @@ import sqlite3
 import time
 
 from tools import policy_engine
+from tools import signing
 
 # Definir rutas absolutas basadas en la ubicación de este script
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -17,9 +18,17 @@ try:
     # Plantilla "seguridad/{device}/comando" — {device} se reemplaza al publicar
     TOPIC_PUBLISH_COMANDO = config['mqtt']['topic_publish_comando']
     DB_PATH = os.path.join(BASE_DIR, config['database']['db_path'])
+    _SIGNING_CFG = config.get('signing', {}) or {}
+    _SIGNING_KEY_PATH = os.path.join(
+        BASE_DIR,
+        _SIGNING_CFG.get('private_key_path', 'certificados/sentinel_pi5_signing.key'),
+    )
+    _SIGNING_TTL = int(_SIGNING_CFG.get('ttl_seconds', signing.DEFAULT_TTL_SECONDS))
 except Exception:
     TOPIC_PUBLISH_COMANDO = "seguridad/{device}/comando"
     DB_PATH = os.path.join(BASE_DIR, "soc_data.db")
+    _SIGNING_KEY_PATH = os.path.join(BASE_DIR, "certificados", "sentinel_pi5_signing.key")
+    _SIGNING_TTL = signing.DEFAULT_TTL_SECONDS
 
 logger = logging.getLogger("CoordinatorSOC")
 
@@ -28,10 +37,30 @@ _iot_client = None
 
 def init_iot_tools(iot_client):
     """
-    Vincula el cliente MQTT activo para permitir la publicacion de acciones desde las herramientas.
+    Vincula el cliente MQTT activo y carga la clave privada Ed25519 con la que
+    se firmaran todos los comandos enviados a los sensores.
     """
     global _iot_client
     _iot_client = iot_client
+    try:
+        signing.load_private_key(_SIGNING_KEY_PATH)
+    except FileNotFoundError:
+        logger.critical(
+            f"[SIGN] No se encontro la clave privada en {_SIGNING_KEY_PATH}. "
+            f"Genera el par con `python scripts/generate_signing_keys.py` antes de arrancar."
+        )
+        raise
+
+
+def _publish_signed(device: str, payload: dict) -> None:
+    """
+    Publica un comando al sensor anadiendo firma Ed25519 + iat/exp/nonce.
+    Centraliza el cableado para que execute_diagnostic_command y
+    _auto_execute_low compartan exactamente el mismo formato.
+    """
+    response_topic = TOPIC_PUBLISH_COMANDO.replace("{device}", device)
+    signed_payload = signing.sign_payload(payload, ttl_seconds=_SIGNING_TTL)
+    _iot_client.publish(response_topic, signed_payload)
 
 def execute_diagnostic_command(device: str, command: str, reason: str) -> dict:
     """
@@ -67,14 +96,12 @@ def execute_diagnostic_command(device: str, command: str, reason: str) -> dict:
         return request_mitigation_approval(device, command, redirected_reason)
 
     try:
-        response_topic = TOPIC_PUBLISH_COMANDO.replace("{device}", device)
         action_payload = {
             "accion": "ejecutar_comando",
             "comando": command,
             "motivo": reason
         }
-        _iot_client.publish(response_topic, action_payload)
-        policy_engine.record_dispatch(command, device, log_id=None)
+        _publish_signed(device, action_payload)
         policy_engine.audit(
             event_type="DISPATCH",
             device=device,
@@ -140,14 +167,12 @@ def _auto_execute_low(device: str, command: str, decorated_rationale: str,
         logger.error("[ERROR] Cliente IoT no inicializado.")
         return {"status": "error", "message": "IoT Client not initialized"}
 
-    response_topic = TOPIC_PUBLISH_COMANDO.replace("{device}", device)
     action_payload = {
         "accion": "ejecutar_comando",
         "comando": command,
         "motivo": f"Auto-ejecucion {cls.level.label()}",
     }
-    _iot_client.publish(response_topic, action_payload)
-    policy_engine.record_dispatch(command, device, log_id=None)
+    _publish_signed(device, action_payload)
 
     # Marcar la fila mas reciente del dispositivo como APPROVED para que el
     # dashboard ofrezca el boton REVERTIR (mismo flujo que tras aprobacion HITL).

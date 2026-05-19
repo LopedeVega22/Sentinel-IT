@@ -163,3 +163,10 @@
   "comando": "sudo ss -K dst 192.168.1.134 && sudo iptables -L INPUT -v -n | grep 192.168.1.134",
   "motivo": "Forzar el cierre de cualquier socket TCP persistente que pueda estar evadiendo el firewall y verificar la presencia de la regla de bloqueo en iptables."
 }
+
+
+{
+  "accion": "ejecutar_comando",
+  "comando": "mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql",
+  "motivo": "pruebas mqtt"
+}

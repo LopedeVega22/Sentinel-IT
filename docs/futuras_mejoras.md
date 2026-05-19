@@ -94,9 +94,11 @@ CREATE TABLE audit_log (
 -- Trigger para impedir UPDATE/DELETE desde la app
 ```
 
-### Limitación honesta
+### Limitación honesta — CERRADA
 
-Sin cooperación de PI-4 no se puede garantizar criptográficamente que un comando que llega a PI-4 vino de PI-5. La defensa actual es la Policy de AWS IoT (3 client_ids autorizados). El Policy Engine **detecta a posteriori** la anomalía vía round-trip verification.
+~~Sin cooperación de PI-4 no se puede garantizar criptográficamente que un comando que llega a PI-4 vino de PI-5. La defensa actual es la Policy de AWS IoT (3 client_ids autorizados). El Policy Engine **detecta a posteriori** la anomalía vía round-trip verification.~~
+
+**Resuelto**: PI-5 firma todos los comandos con Ed25519; PI-4 verifica firma + ventana de validez + nonce antes de ejecutar. La detección reactiva (round-trip cache + `INTRUSION-COMMAND-INJECTION`) se ha retirado porque la garantía es ahora *a priori*. Ver `docs/Configuration_and_Deployment.md` § 8.
 
 ### Mapeo con estándares para la memoria del TFG
 
