@@ -11,7 +11,7 @@
       "explicacion": "Cierra de forma forzada y revoca todas las sesiones web activas asociadas al nombre de usuario indicado, destruyendo la sesión PHP y eliminando el registro para expulsar al atacante."
     },
     {
-      "ataque": "Bloqueo de IP atacante en la web (HTTP/HTTPS)",
+      "ataque": "Bloqueo de IP atacante en la web (HTTP/HTTPS) en caso de ataque repetitivo (ataque real)",
       "comando": "sudo iptables -A INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -A INPUT -p tcp -s {ip} --dport 8080 -j DROP",
       "explicacion": "Bloquea tráfico TCP entrante desde la IP indicada en los puertos 80 y 8080. IMPORTANTE: hay que bloquear AMBOS puertos siempre — el 80 es solo el proxy que redirige internamente al 8080, donde está el servidor web real. Si solo bloqueas el 80, el atacante puede saltarse el filtro accediendo directamente al 8080."
     },

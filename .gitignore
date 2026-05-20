@@ -10,6 +10,7 @@ env/
 
 # Agents & Tools
 .agents/
+.claude
 graphify-out/
 basura/
 ssh_run.py

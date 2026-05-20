@@ -1,11 +1,11 @@
 # main_coordinator.py
+import asyncio
 import time
 import json
 import os
 import yaml
 import logging
 import traceback
-import threading
 from logging.handlers import RotatingFileHandler
 from aws_connector import AWSMqttClient
 from agents.triage_agent.triage_agent import triage_agent
@@ -31,9 +31,8 @@ TOPIC_SUBSCRIBE_TELEMETRIA = config['mqtt']['topic_subscribe_telemetria']
 TOPIC_SUBSCRIBE_EVENTOS    = config['mqtt']['topic_subscribe_eventos']
 TOPIC_SUBSCRIBE_RESPUESTAS = config['mqtt']['topic_subscribe_respuestas']
 
-# --- Batch Configuration ---
-BATCH_MAX_SIZE      = config.get('batch', {}).get('max_size', 10)
-BATCH_FLUSH_INTERVAL = config.get('batch', {}).get('flush_interval', 15)
+# --- Queue Configuration ---
+QUEUE_MAX_SIZE = config.get('queue', {}).get('max_size', 100)
 
 # --- Logging Configuration ---
 LOG_FILE_PATH    = config['logging']['file_path']
@@ -54,8 +53,6 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 # --- Initialize ADK Runner once at startup ---
-import asyncio
-
 APP_NAME = "soc_coordinator"
 USER_ID  = "soc_admin"
 
@@ -72,130 +69,80 @@ _runner_feedback = Runner(
     session_service=_session_service,
 )
 
-# Pre-create the session at startup (ADK requires it to exist before use)
-_session = asyncio.run(
-    _session_service.create_session(app_name=APP_NAME, user_id=USER_ID)
-)
-logger.info(f"[INFO] ADK Session created: {_session.id}")
-
 
 # ===========================================================================
-# Dual-Trigger Microbatch Queue
+# Async Event Queue — Immediate Processing (Producer-Consumer)
 # ===========================================================================
-class LogBatchQueue:
+# Reference to the running asyncio event loop, set inside main().
+# Used by the MQTT callback (which runs in an awscrt thread) to schedule
+# work on the event loop in a thread-safe manner.
+_loop: asyncio.AbstractEventLoop | None = None
+
+# Queues are created inside main() once the event loop is running.
+_triage_queue: asyncio.Queue | None = None
+_feedback_queue: asyncio.Queue | None = None
+
+
+def _enqueue_from_thread(queue: asyncio.Queue, device: str, raw_log: str):
     """
-    Thread-safe queue that accumulates incoming logs and flushes them
-    to the ADK agent in batches. Flush triggers:
-      1. Queue reaches max_size logs  (volume trigger)
-      2. flush_interval seconds pass  (time trigger)
-    Whichever condition is met first.
+    Thread-safe bridge: schedules a put_nowait on the asyncio event loop.
+
+    The MQTT callback from awscrt runs in a native thread, not in the
+    asyncio loop.  `call_soon_threadsafe` is the canonical way to inject
+    work from an external thread into a running event loop.
     """
-
-    def __init__(self, max_size: int, flush_interval: int):
-        self._queue: list[dict] = []
-        self._lock = threading.Lock()
-        self._max_size = max_size
-        self._flush_interval = flush_interval
-        self._last_flush = time.time()
-
-    def add(self, device: str, raw_log: str):
-        """Enqueue a log entry. If max_size is reached, return True to signal immediate flush."""
-        with self._lock:
-            self._queue.append({"device": device, "raw_log": raw_log})
-            return len(self._queue) >= self._max_size
-
-    def flush(self) -> list[dict]:
-        """Atomically drain the queue and return all pending entries."""
-        with self._lock:
-            batch = list(self._queue)
-            self._queue.clear()
-            self._last_flush = time.time()
-            return batch
-
-    def size(self) -> int:
-        with self._lock:
-            return len(self._queue)
-
-    def seconds_since_flush(self) -> float:
-        return time.time() - self._last_flush
-
-    @property
-    def flush_interval(self) -> int:
-        return self._flush_interval
-
-
-# Global batch queues
-_triage_queue = LogBatchQueue(max_size=BATCH_MAX_SIZE, flush_interval=BATCH_FLUSH_INTERVAL)
-_feedback_queue = LogBatchQueue(max_size=BATCH_MAX_SIZE, flush_interval=BATCH_FLUSH_INTERVAL)
-
-
-def _format_batch_message(batch: list[dict], queue_type: str) -> str:
-    """Formats a list of log entries into a single message for the ADK agent."""
-    event_type = "Log" if queue_type == "triage" else "Feedback"
-    
-    if len(batch) == 1:
-        entry = batch[0]
-        return f"Nuevo {event_type} proveniente del dispositivo '{entry['device']}':\n{entry['raw_log']}"
-
-    lines = [f"Batch de {len(batch)} eventos ({event_type}) interceptados. Analiza CADA uno individualmente:\n"]
-    for i, entry in enumerate(batch, 1):
-        lines.append(f"[{i}] Dispositivo: {entry['device']} | Data: {entry['raw_log']}")
-    return "\n".join(lines)
-
-
-def _process_batch(batch: list[dict], runner: Runner, queue_type: str):
-    """Sends a batch of logs to the ADK agent as a single message."""
+    if _loop is None or _loop.is_closed():
+        logger.warning("[QUEUE] Event loop not ready — dropping event")
+        return
     try:
-        message = _format_batch_message(batch, queue_type)
-        logger.info(f"[{queue_type.upper()}] Flushing {len(batch)} event(s) to ADK agent...")
-
-        response_stream = runner.run(
-            user_id=USER_ID,
-            session_id=_session.id,
-            new_message=types.Content(role="user", parts=[types.Part(text=message)])
-        )
-
-        responses = []
-        for event in response_stream:
-            content = getattr(event, 'content', None)
-            if content and getattr(content, 'parts', None):
-                for part in content.parts:
-                    text = getattr(part, 'text', None)
-                    if text:
-                        responses.append(text)
-
-        logger.info(f"[{queue_type.upper()}] Transaction complete. Responses: {len(responses)}")
-
+        _loop.call_soon_threadsafe(queue.put_nowait, (device, raw_log))
+    except asyncio.QueueFull:
+        logger.warning(f"[QUEUE] Backpressure! Queue full ({QUEUE_MAX_SIZE}) — dropping event from {device}")
     except Exception as e:
-        logger.error(f"[{queue_type.upper()}] Error processing batch: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"[QUEUE] Enqueue error: {e}")
 
 
-def _batch_dispatcher(queue: LogBatchQueue, runner: Runner, queue_type: str):
+async def _worker(queue: asyncio.Queue, runner: Runner, queue_type: str, session_id: str):
     """
-    Background daemon thread. Checks the queue every second and flushes
-    when either the volume threshold or time threshold is reached.
+    Single-consumer async worker: pulls events one-by-one from the queue
+    and sends them to the ADK agent via run_async.
+
+    - The first event that arrives is processed IMMEDIATELY (zero delay).
+    - Subsequent events queue up and are processed as soon as the previous
+      one completes.
+    - Each agent type (triage / feedback) has its own worker, so they run
+      in parallel.  Within a type, events are strictly sequential to
+      preserve session context and avoid race conditions on the LLM.
     """
-    logger.info(f"[{queue_type.upper()}] Dispatcher started (max_size={BATCH_MAX_SIZE}, interval={BATCH_FLUSH_INTERVAL}s)")
+    logger.info(f"[{queue_type.upper()}] Async worker started (queue_max={QUEUE_MAX_SIZE})")
     while True:
-        time.sleep(1)
+        device, raw_log = await queue.get()
         try:
-            queue_size = queue.size()
-            if queue_size == 0:
-                continue
+            event_type = "Log" if queue_type == "triage" else "Feedback"
+            message = f"Nuevo {event_type} proveniente del dispositivo '{device}':\n{raw_log}"
+            logger.info(f"[{queue_type.upper()}] Processing event from {device}...")
 
-            time_trigger = queue.seconds_since_flush() >= queue.flush_interval
-            size_trigger = queue_size >= BATCH_MAX_SIZE
+            response_count = 0
+            async for event in runner.run_async(
+                user_id=USER_ID,
+                session_id=session_id,
+                new_message=types.Content(role="user", parts=[types.Part(text=message)])
+            ):
+                content = getattr(event, 'content', None)
+                if content and getattr(content, 'parts', None):
+                    for part in content.parts:
+                        text = getattr(part, 'text', None)
+                        if text:
+                            response_count += 1
+                            logger.info(f"[{queue_type.upper()}] Agent response: {text[:200]}")
 
-            if time_trigger or size_trigger:
-                trigger_reason = "SIZE" if size_trigger else "TIMER"
-                logger.info(f"[{queue_type.upper()}] Trigger: {trigger_reason} (queue={queue_size})")
-                batch = queue.flush()
-                if batch:
-                    _process_batch(batch, runner, queue_type)
+            logger.info(f"[{queue_type.upper()}] Event processed ({response_count} responses)")
+
         except Exception as e:
-            logger.error(f"[{queue_type.upper()}] Dispatcher error: {e}")
+            logger.error(f"[{queue_type.upper()}] Error processing event: {e}")
             logger.error(traceback.format_exc())
+        finally:
+            queue.task_done()
 
 
 # ===========================================================================
@@ -308,7 +255,7 @@ def _format_normalized_feedback(norm: dict) -> str:
 # MQTT Callback
 # ===========================================================================
 def process_event(topic, payload, **kwargs):
-    """AWS IoT Callback: Receives the raw log and enqueues it for batch processing."""
+    """AWS IoT Callback: Receives the raw log and enqueues it for immediate processing."""
     try:
         data = json.loads(payload.decode('utf-8'))
 
@@ -344,10 +291,8 @@ def process_event(topic, payload, **kwargs):
 
         logger.info(f"[MQTT] [{queue_type.upper()}] Event received from {source_device} on topic {topic} — queued")
 
-        # Enqueue the log — if threshold reached, signal immediate flush
-        should_flush = queue.add(source_device, raw_log)
-        if should_flush:
-            logger.info(f"[{queue_type.upper()}] Volume threshold reached ({BATCH_MAX_SIZE}) — triggering immediate flush")
+        # Thread-safe enqueue into the asyncio event loop for immediate processing
+        _enqueue_from_thread(queue, source_device, raw_log)
 
     except Exception as e:
         logger.error(f"[MQTT] Error in process_event: {e}")
@@ -355,8 +300,24 @@ def process_event(topic, payload, **kwargs):
 
 
 # --- Program Entry Point ---
-if __name__ == "__main__":
+async def main():
+    """Async entry point: sets up queues, workers, MQTT, and runs forever."""
+    global _loop, _triage_queue, _feedback_queue
 
+    # Capture the running event loop so the MQTT thread can enqueue work.
+    _loop = asyncio.get_running_loop()
+
+    # Create bounded async queues (backpressure)
+    _triage_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
+    _feedback_queue = asyncio.Queue(maxsize=QUEUE_MAX_SIZE)
+
+    # Create the ADK session (must be done inside an async context)
+    session = await _session_service.create_session(
+        app_name=APP_NAME, user_id=USER_ID
+    )
+    logger.info(f"[INFO] ADK Session created: {session.id}")
+
+    # --- MQTT Connection (sync, with retry backoff) ---
     global_iot_client = AWSMqttClient(
         endpoint=ENDPOINT,
         cert_path=CERT_PATH,
@@ -365,7 +326,6 @@ if __name__ == "__main__":
         client_id=CLIENT_ID
     )
 
-    # Retry connection with exponential backoff on startup to handle DNS or network availability delay
     connected = False
     retry_delay = 2
     max_delay = 60
@@ -377,30 +337,38 @@ if __name__ == "__main__":
             connected = True
         except Exception as e:
             logger.warning(f"[WARNING] Fallo en la conexion inicial a AWS IoT: {e}. Reintentando en {retry_delay}s...")
-            time.sleep(retry_delay)
+            await asyncio.sleep(retry_delay)
             retry_delay = min(retry_delay * 2, max_delay)
 
     try:
         # Inject IoT client into ADK tools (Dependency Injection)
         init_iot_tools(global_iot_client)
 
-        # Start the batch dispatcher daemon threads
-        triage_thread = threading.Thread(target=_batch_dispatcher, args=(_triage_queue, _runner_triage, "triage"), daemon=True)
-        feedback_thread = threading.Thread(target=_batch_dispatcher, args=(_feedback_queue, _runner_feedback, "feedback"), daemon=True)
-        triage_thread.start()
-        feedback_thread.start()
+        # Launch async workers (one per agent type — they run in parallel)
+        triage_task = asyncio.create_task(
+            _worker(_triage_queue, _runner_triage, "triage", session.id)
+        )
+        feedback_task = asyncio.create_task(
+            _worker(_feedback_queue, _runner_feedback, "feedback", session.id)
+        )
 
+        # Subscribe to MQTT topics (callbacks fire in awscrt thread)
         global_iot_client.subscribe(TOPIC_SUBSCRIBE_TELEMETRIA, process_event)
         global_iot_client.subscribe(TOPIC_SUBSCRIBE_EVENTOS,    process_event)
         global_iot_client.subscribe(TOPIC_SUBSCRIBE_RESPUESTAS, process_event)
 
         logger.info("[INFO] Autonomous SOC (ADK Powered) Active.")
-        logger.info(f"[INFO] Batch mode: max_size={BATCH_MAX_SIZE}, flush_interval={BATCH_FLUSH_INTERVAL}s")
+        logger.info(f"[INFO] Async queue mode: max_size={QUEUE_MAX_SIZE} (immediate processing)")
         logger.info("[INFO] Awaiting security logs via AWS IoT MQTT...")
 
-        while True:
-            time.sleep(1)
+        # Keep the event loop alive. gather() will also propagate worker
+        # exceptions if a fatal error occurs in either worker.
+        await asyncio.gather(triage_task, feedback_task)
 
     except Exception as e:
         logger.critical(f"[CRITICAL] Fatal error in Coordinator: {e}")
         logger.critical(traceback.format_exc())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

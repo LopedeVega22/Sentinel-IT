@@ -40,6 +40,5 @@ retention:
   max_days: 30          
   purge_on_insert: true 
 
-batch:
-  max_size: 10          # Flush when this many logs accumulate
-  flush_interval: 15    # Flush every N seconds regardless of queue size
+queue:
+  max_size: 100         # Backpressure limit per agent queue (triage, feedback)

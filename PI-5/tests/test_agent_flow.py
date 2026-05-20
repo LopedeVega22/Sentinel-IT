@@ -45,8 +45,8 @@ from aws_connector import AWSMqttClient
 # Parametros del test
 # ---------------------------------------------------------------------------
 TEST_DEVICE = "Pi4-Felix"  # cualquier device autorizado por la policy
-# Ventana de espera para que el triage agent flushee y procese el batch
-# (batch.flush_interval = 15s por defecto + tiempo de inferencia)
+# Ventana de espera para que el triage agent procese el evento
+# (procesamiento inmediato via asyncio.Queue + tiempo de inferencia del LLM)
 TRIAGE_WAIT_SECONDS = 45
 FEEDBACK_WAIT_SECONDS = 45
 
@@ -317,7 +317,7 @@ def main():
 
         # --- Escenarios ---
         a_ok = escenario_a_exito(client)
-        # Pequena pausa para no solapar batches del coordinador
+        # Pequena pausa para no solapar procesamiento del coordinador
         time.sleep(5)
         b_ok = escenario_b_fallo(client)
 
