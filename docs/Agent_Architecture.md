@@ -38,16 +38,13 @@ No cubre el HITL del dashboard (eso está en `HITL_Architecture.md`), ni la lóg
 
 - Ambos agentes corren bajo `google.adk.runners.Runner`, compartiendo un único `InMemorySessionService` y una sesión creada al arrancar el coordinador.
 - Cada agente tiene su propio `Runner`: `_runner_triage`, `_runner_feedback`.
-- Esto se inicializa una sola vez en `main_coordinator.py` (líneas 64-81).
+- Esto se inicializa una sola vez ### 2.4 Cola asíncrona (`asyncio.Queue`) con Procesamiento Inmediato
 
-### 2.4 Cola de microbatch (`LogBatchQueue`)
+Definida en `main_coordinator.py:79`. Una por agente (`_triage_queue`, `_feedback_queue`). Permite el procesamiento de eventos en tiempo real:
 
-Definida en `main_coordinator.py:87`. Una por agente (`_triage_queue`, `_feedback_queue`). Acumula logs y los flushea cuando ocurre **lo que pase primero**:
-
-- **Trigger por volumen:** la cola alcanza `batch.max_size` (config.yml, default 10).
-- **Trigger por tiempo:** han pasado `batch.flush_interval` segundos (default 15).
-
-Cada cola tiene un hilo daemon (`_batch_dispatcher`) que comprueba estas condiciones cada segundo. Cuando se flushea, los entries se concatenan en un mensaje único que se manda al runner ADK correspondiente.
+- **Procesamiento Inmediato**: El primer evento que entra se procesa a los 0ms de llegar mediante `runner.run_async()`.
+- **Encolamiento**: Si llega un nuevo evento mientras la IA está ocupada con una inferencia, este se guarda en la cola y se procesa secuencialmente tan pronto termine la inferencia actual.
+- **Backpressure**: Para evitar el consumo desmedido de memoria ante ráfagas, las colas están acotadas a `queue.max_size` (config.yml, default 100). Si la cola se llena, los nuevos eventos se descartan de forma segura.
 
 ### 2.5 Policy Engine (resumen del acoplamiento)
 
@@ -61,12 +58,12 @@ El motor (`src/tools/policy_engine.py`) interviene en **tres puntos** del flujo 
 
 | Topic | Dirección | Quién publica | Consumidor en PI-5 |
 |-------|-----------|---------------|--------------------|
-| `seguridad/<device>/telemetria` | PI-4 → PI-5 | Sensor PI-4 | `process_event` → `triage_queue` |
-| `seguridad/<device>/evento` | PI-4 → PI-5 | Sensor PI-4 | `process_event` → `triage_queue` |
-| `seguridad/<device>/respuesta` | PI-4 → PI-5 | Sensor PI-4 (tras ejecutar) | `process_event` → verify_feedback → `feedback_queue` |
+| `seguridad/<device>/telemetria` | PI-4 → PI-5 | Sensor PI-4 | `process_event` → `_enqueue_from_thread` → `triage_queue` |
+| `seguridad/<device>/evento` | PI-4 → PI-5 | Sensor PI-4 | `process_event` → `_enqueue_from_thread` → `triage_queue` |
+| `seguridad/<device>/respuesta` | PI-4 → PI-5 | Sensor PI-4 (tras ejecutar) | `process_event` → verify_feedback → `_enqueue_from_thread` → `feedback_queue` |
 | `seguridad/<device>/comando` | PI-5 → PI-4 | `execute_diagnostic_command` / `_auto_execute_low` | El sensor PI-4 lo recibe y ejecuta |
 
-El enrutamiento por sufijo de topic está en `main_coordinator.py:226`:
+El enrutamiento por sufijo de topic está en `main_coordinator.py:281`:
 
 ```python
 queue_type = "feedback" if topic.endswith("/respuesta") else "triage"
@@ -76,46 +73,46 @@ queue_type = "feedback" if topic.endswith("/respuesta") else "triage"
 
 ```
 PI-4 sensor          PI-5 coordinator        Triage Agent      Policy Engine    PI-4 sensor       Feedback Agent
-     │                       │                      │                  │                │                  │
-     │  log evento (MQTT)    │                      │                  │                │                  │
-     │──────────────────────▶│                      │                  │                │                  │
-     │     seguridad/X/evento│                      │                  │                │                  │
-     │                       │ encola en triage_queue                  │                │                  │
-     │                       │ (flush por volumen o tiempo)            │                │                  │
-     │                       │─────────────────────▶│                  │                │                  │
-     │                       │  Runner.run(batch)   │                  │                │                  │
-     │                       │                      │ register_alert   │                │                  │
-     │                       │                      │ request_mitigation_approval(cmd) │                  │
-     │                       │                      │──────────────────▶│ classify(cmd) │                  │
-     │                       │                      │   LOW/SAFE_READ  │                │                  │
-     │                       │                      │◀──────────────────│ auto-ejecutar │                  │
-     │                       │ publish seguridad/X/comando             │                │                  │
-     │                       │ + record_dispatch    │                  │                │                  │
-     │◀──────────────────────│                      │                  │                │                  │
-     │ ejecuta y responde    │                      │                  │                │                  │
-     │──────────────────────▶│                      │                  │                │                  │
-     │ seguridad/X/respuesta │                      │                  │                │                  │
-     │                       │ verify_feedback ─── MATCH ─────────────▶│                │                  │
-     │                       │ encola en feedback_queue                │                │                  │
-     │                       │──────────────────────────────────────────────────────────│─────────────────▶│
-     │                       │                      │                  │                │  update_alert_status
-     │                       │                      │                  │                │   (EXITO o FALLO)
-     │                       │                      │                  │                │       │
-     │                       │                      │   si FALLO: feedback puede llamar request_mitigation_approval
-     │                       │                      │   con un comando alternativo → vuelve a publicar a PI-4
+      │                       │                      │                  │                │                  │
+      │  log evento (MQTT)    │                      │                  │                │                  │
+      │──────────────────────▶│                      │                  │                │                  │
+      │     seguridad/X/evento│                      │                  │                │                  │
+      │                       │ encola en triage_queue                  │                │                  │
+      │                       │ (procesado al instante)                 │                │                  │
+      │                       │─────────────────────▶│                  │                │                  │
+      │                       │ Runner.run_async()   │                  │                │                  │
+      │                       │                      │ register_alert   │                │                  │
+      │                       │                      │ request_mitigation_approval(cmd) │                  │
+      │                       │                      │──────────────────▶│ classify(cmd) │                  │
+      │                       │                      │   LOW/SAFE_READ  │                │                  │
+      │                       │                      │◀──────────────────│ auto-ejecutar │                  │
+      │                       │ publish seguridad/X/comando             │                │                  │
+      │                       │ + record_dispatch    │                  │                │                  │
+      │◀──────────────────────│                      │                  │                │                  │
+      │ ejecuta y responde    │                      │                  │                │                  │
+      │──────────────────────▶│                      │                  │                │                  │
+      │ seguridad/X/respuesta │                      │                  │                │                  │
+      │                       │ verify_feedback ─── MATCH ─────────────▶│                │                  │
+      │                       │ encola en feedback_queue                │                │                  │
+      │                       │──────────────────────────────────────────────────────────│─────────────────▶│
+      │                       │                      │                  │                │  update_alert_status
+      │                       │                      │                  │                │   (EXITO o FALLO)
+      │                       │                      │                  │                │       │
+      │                       │                      │   si FALLO: feedback puede llamar request_mitigation_approval
+      │                       │                      │   con un comando alternativo → vuelve a publicar a PI-4
 ```
 
 Caso anómalo (Capa 3 detecta INTRUSION):
 
 ```
 PI-4 sensor          PI-5 coordinator        Policy Engine     Triage Agent
-     │ respuesta con comando que jamás se emitió                │
-     │──────────────────────▶│ verify_feedback ─── ANOMALY ────▶│
-     │                       │ register_alert(INTRUSION-COMMAND-INJECTION)
-     │                       │ audit(event_type=ANOMALY)        │
-     │                       │ ─── NO se encola al feedback ────│
-     │                       │ (el triage lo verá en su próximo batch
-     │                       │  como alerta INTRUSION para reaccionar)
+      │ respuesta con comando que jamás se emitió                │
+      │──────────────────────▶│ verify_feedback ─── ANOMALY ────▶│
+      │                       │ register_alert(INTRUSION-COMMAND-INJECTION)
+      │                       │ audit(event_type=ANOMALY)        │
+      │                       │ ─── NO se encola al feedback ────│
+      │                       │ (el triage lo verá al encolarse  │
+      │                       │  como alerta INTRUSION para reaccionar)
 ```
 
 ## 5. Reglas críticas que cumple cada agente
@@ -132,8 +129,7 @@ PI-4 sensor          PI-5 coordinator        Policy Engine     Triage Agent
 ## 6. Configuración relevante
 
 `config.yml`:
-- `batch.max_size` (default 10) — disparo por volumen.
-- `batch.flush_interval` (default 15s) — disparo por tiempo.
+- `queue.max_size` (default 100) — límite de backpressure por cola de agente.
 - `mqtt.topic_subscribe_*` — patrones de suscripción del coordinador.
 - `mqtt.topic_publish_comando` — plantilla con `{device}` que las tools sustituyen al publicar.
 

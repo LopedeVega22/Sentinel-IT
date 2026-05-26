@@ -296,3 +296,41 @@ def _quarantine_for_hitl(device: str, command: str, decorated_rationale: str,
             f"No debes hacer nada mas sobre esta alerta."
         ),
     }
+
+def consultar_manual_mitigacion(query: str) -> str:
+    """
+    Consulta la base de conocimiento local de mitigaciones recomendadas.
+    Usa esta herramienta SIEMPRE que necesites buscar el comando Bash exacto 
+    y la explicacion para un tipo de ataque especifico.
+
+    Args:
+        query: Palabras clave del ataque (ej. 'XSS', 'SSH', 'SQLi', 'Web').
+    """
+    try:
+        import json
+        rec_path = os.path.join(BASE_DIR, 'recommendations.json')
+        with open(rec_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        recs = data.get("recomendaciones_mitigacion", [])
+        
+        query_lower = query.lower()
+        matches = []
+        for item in recs:
+            if query_lower in item.get("ataque", "").lower() or query_lower in item.get("explicacion", "").lower():
+                matches.append(item)
+        
+        # Si no hay match exacto, devolvemos todo el manual para que el LLM decida
+        if not matches:
+            matches = recs
+            
+        res_str = []
+        for m in matches:
+            cmd = m.get("comando", "")
+            res_str.append(f"- Ataque: {m.get('ataque', '')}\n  Comando: {cmd}\n  Explicacion: {m.get('explicacion', '')}")
+            
+        return "\n\n".join(res_str)
+    except Exception as e:
+        logger.error(f"[ERROR] consultando manual de mitigacion: {e}")
+        return f"Error consultando manual: {str(e)}"
+

@@ -7,6 +7,7 @@ ENV/
 env/
 .env
 *.db
+.pytest_cache
 
 # Agents & Tools
 .agents/
@@ -14,7 +15,9 @@ env/
 graphify-out/
 basura/
 ssh_run.py
+scp_upload.py
 skills-lock.json
+certificados/*
 
 # Logs
 *.log
@@ -27,3 +30,5 @@ skills-lock.json
 # Projects
 PI-4/
 .gitignore
+presentacion/
+node_modules/

@@ -485,8 +485,8 @@ T+5s   3er fallo a usuario root
          { "evento": "FALLO_SSH", "ip": "...", "prioridad": "ALTA" }
 
 T+5s   PI-5 recibe el evento ALTA
-       → LogBatchQueue lo encola
-       → Triage Agent (Gemini/Ollama) analiza el log
+       → Encolado en triage_queue (asyncio.Queue)
+       → Triage Agent (Gemini/Ollama) analiza el log de inmediato
        → Decide: block_ip("192.168.1.99")
 
 T+6s   PI-5 publica en comandos/Pi4-Felix:

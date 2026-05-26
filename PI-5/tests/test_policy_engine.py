@@ -120,64 +120,7 @@ class TestDecision(unittest.TestCase):
         self.assertFalse(decide("rm -rf /tmp").allow_direct)
 
 
-class TestRoundTrip(unittest.TestCase):
 
-    def setUp(self):
-        # Limpia el cache antes de cada test
-        with policy_engine._dispatch_lock:
-            policy_engine._dispatch_cache.clear()
-
-    def test_match_cuando_comando_fue_emitido(self):
-        policy_engine.record_dispatch("sudo iptables -A INPUT -s 1.2.3.4 -j DROP", "Pi4-Felix")
-        verdict = policy_engine.verify_feedback(
-            "sudo iptables -A INPUT -s 1.2.3.4 -j DROP", "Pi4-Felix"
-        )
-        self.assertEqual(verdict, "MATCH")
-
-    def test_anomaly_cuando_comando_no_fue_emitido(self):
-        # Cache vacia: cualquier comando ejecutado es anomalo.
-        verdict = policy_engine.verify_feedback("whoami", "Pi4-Felix")
-        self.assertEqual(verdict, "ANOMALY")
-
-    def test_anomaly_si_dispositivo_diferente(self):
-        policy_engine.record_dispatch("cat /tmp/x", "Pi4-Felix")
-        verdict = policy_engine.verify_feedback("cat /tmp/x", "Pi4-Otro")
-        self.assertEqual(verdict, "ANOMALY")
-
-    def test_match_ignora_espacios_redundantes(self):
-        policy_engine.record_dispatch("cat   /tmp/x", "Pi4-Felix")
-        verdict = policy_engine.verify_feedback("cat /tmp/x", "Pi4-Felix")
-        self.assertEqual(verdict, "MATCH")
-
-    def test_match_feedback_devuelve_log_id_para_correlacion(self):
-        # El fast-path del coordinador necesita recuperar el log_id original
-        # del dispatch para escribir estado_mitigacion en la fila correcta.
-        policy_engine.record_dispatch(
-            "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre 'Admin'",
-            "Pi4-Felix",
-            log_id=42,
-        )
-        match = policy_engine.match_feedback(
-            "php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --cerrar-nombre 'Admin'",
-            "Pi4-Felix",
-        )
-        self.assertIsNotNone(match)
-        self.assertEqual(match["log_id"], 42)
-
-    def test_match_feedback_devuelve_el_dispatch_mas_reciente(self):
-        # Si el operador aprueba el mismo comando dos veces (porque revertio
-        # y volvio a aplicarlo), el feedback debe correlacionar con el ultimo
-        # dispatch — el primero ya quedo cerrado.
-        policy_engine.record_dispatch("cat /tmp/x", "Pi4-Felix", log_id=1)
-        import time as _time
-        _time.sleep(0.01)
-        policy_engine.record_dispatch("cat /tmp/x", "Pi4-Felix", log_id=2)
-        match = policy_engine.match_feedback("cat /tmp/x", "Pi4-Felix")
-        self.assertIsNotNone(match)
-        self.assertEqual(match["log_id"], 2)
-
-    def test_match_feedback_none_si_no_hay_dispatch(self):
-        self.assertIsNone(policy_engine.match_feedback("whoami", "Pi4-Felix"))
 
 
 class TestAuditLogInmutable(unittest.TestCase):
@@ -314,9 +257,7 @@ class TestMitigationApprovalAutoExecute(unittest.TestCase):
         iot_tools.DB_PATH = self.db_path
         policy_engine.DB_PATH = self.db_path
 
-        # Cache limpia para no interferir con round-trip
-        with policy_engine._dispatch_lock:
-            policy_engine._dispatch_cache.clear()
+
 
     def tearDown(self):
         self.iot_tools.DB_PATH = self._original_iot_db

@@ -22,7 +22,7 @@ Si vienes nuevo al proyecto, lee los documentos en el orden de las fases. Si vie
 | **1. Visión general** | [System_Overview.md](System_Overview.md) | Topología Edge-Cloud-Core, componentes principales, flujo end-to-end de un incidente, mapa de archivos clave |
 | **2. Comunicaciones** | [funcionamiento_mqtt.md](funcionamiento_mqtt.md) | Esquema de topics `seguridad/<device>/<categoría>`, AWS IoT Core, mTLS, enrutamiento del coordinador |
 | **3. Resiliencia MQTT** | [MQTT_Resilience.md](MQTT_Resilience.md) | Dos clientes MQTT, detección de conexiones zombie, reconexión automática, garantías de entrega |
-| **4. Agentes IA** | [Agent_Architecture.md](Agent_Architecture.md) | `SOC_Triage_Agent`, `SOC_Feedback_Agent`, Runner ADK, microbatch, acoplamiento con el motor de políticas |
+| **4. Agentes IA** | [Agent_Architecture.md](Agent_Architecture.md) | `SOC_Triage_Agent`, `SOC_Feedback_Agent`, Runner ADK, colas asíncronas, acoplamiento con el motor de políticas |
 | **5. Motor de Políticas** | [funcionamiento_policy_engine.md](funcionamiento_policy_engine.md) | Clasificación de riesgo (SAFE_READ/LOW/HIGH/CRITICAL), audit log inmutable |
 | **6. Human-in-the-Loop** | [HITL_Architecture.md](HITL_Architecture.md) | Modelo Zero-Trust con escalada de privilegios, ciclo PENDING → APPROVED, modal del dashboard |
 | **7. Dashboard SOC** | [Dashboard_Architecture.md](Dashboard_Architecture.md) | Flask + auth, endpoints, refresco AJAX, Live Threat Feed, topología radar, sistema de revertido |

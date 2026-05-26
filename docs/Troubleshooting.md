@@ -243,7 +243,7 @@ sudo systemctl status agente_monitor
 | No hay líneas "Suscrito a:" | Conexión MQTT falló al arrancar | Reiniciar el contenedor; revisar logs para DNS/cert errors |
 | Hay suscripciones pero no llegan mensajes | PI-4 no está publicando | Verificar que el agente de PI-4 está corriendo |
 | PI-4 publica pero PI-5 no recibe | Topic mismatch | Verificar que PI-4 publica en `seguridad/<device>/telemetria` (no otro path) |
-| Todo OK pero eventos llegan con retraso | Batch timer (15s) | Comportamiento normal — el coordinador agrupa en lotes de hasta 10 o cada 15s |
+| Todo OK pero eventos llegan con retraso | Latencia de red o inferencia del LLM | Comportamiento normal — el procesamiento es inmediato y asíncrono, pero la inferencia de la IA puede tardar unos segundos. |
 
 ---
 
@@ -313,7 +313,7 @@ En los logs del coordinador:
 ### 3.8 El agente IA no responde / tarda mucho
 
 #### Síntoma
-Los eventos se encolan pero el log muestra que el triage tarda >30s por batch.
+Los eventos se encolan pero el log muestra que el triage tarda >30s por evento.
 
 #### Diagnóstico
 ```bash

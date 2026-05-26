@@ -160,7 +160,7 @@ cd PI-5
 python tests/test_agent_flow.py
 ```
 
-Cada escenario tiene una ventana de espera (`TRIAGE_WAIT_SECONDS=45`, `FEEDBACK_WAIT_SECONDS=45`) que cubre `batch.flush_interval` (15 s por defecto) + tiempo de inferencia de Gemini. Si el batch flushea antes (porque otros eventos lo dispararon), el test no se penaliza.
+Cada escenario tiene una ventana de espera (`TRIAGE_WAIT_SECONDS=45`, `FEEDBACK_WAIT_SECONDS=45`) que cubre el tiempo de procesamiento asíncrono e inferencia del modelo Gemini.
 
 **Cuándo correrlo:** validación full-stack tras cualquier cambio mayor (coordinator, agentes, Policy Engine, MQTT, BD). Es el test más cercano a producción y el que más coste tiene (Gemini se invoca dos veces).
 
@@ -193,7 +193,7 @@ python -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee /tmp/test_run.
 
 - **HITL completo:** un test que apruebe una mitigación PENDING vía el endpoint `/api/mitigate/approve` y verifique el flujo de re-clasificación + audit. Hoy solo se cubre con `test_dashboard_api.py` a nivel de smoke.
 - **Revert:** el flujo `/revert/<id>` no tiene test específico. Cubierto manualmente.
-- **Microbatch:** no hay test que valide el disparo dual (volumen vs tiempo). El comportamiento se valida indirectamente en `test_agent_flow.py`.
+- **Queues asíncronas:** no hay test que valide los límites de backpressure bajo carga pesada. El comportamiento se valida indirectamente en `test_agent_flow.py`.
 
 Estas mejoras quedan registradas en [futuras_mejoras.md](futuras_mejoras.md) (si se añaden) o como issues.
 

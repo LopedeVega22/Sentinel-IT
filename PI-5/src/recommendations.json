@@ -29,6 +29,16 @@
       "ataque": "Recuperación tras compromiso de BBDD (SQLi con escritura, borrado de tablas)",
       "comando": "bash -c 'source /home/lopex/backup_env.sh && restic restore latest --target /home/lopex/restauracion_web --include /tmp/all_databases.sql && mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql'",
       "explicacion": "Restaura el dump completo de bases de datos desde el último snapshot restic y lo reimporta con mysql. NOTA: el flag -p de mysql solicita contraseña interactiva, lo cual no funciona en ejecución vía subprocess; en producción real conviene sustituirlo por --defaults-file ~/.my.cnf o la variable de entorno MYSQL_PWD. Acción destructiva (reemplaza el estado de las BBDD): exige confirmación humana explícita."
+    },
+    {
+      "ataque": "Cross-Site Scripting (XSS) detectado en la tabla sugerencias",
+      "comando": "mysql -u root -p SentinelIT -e \"DELETE FROM sugerencias WHERE comentario LIKE '%<script>%';\" && php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
+      "explicacion": "Borra especificamente las sugerencias que contengan etiquetas script maliciosas de la tabla de sugerencias en la BBDD SentinelIT para neutralizar el Stored XSS. Inmediatamente despues, lista las sesiones activas para que el analista evalue si debe revocar alguna sesion de administrador que haya podido ser robada (Session Hijacking)."
+    },
+    {
+      "ataque": "Compromiso Critico de Credenciales (Cambio de contraseña no autorizado tras Session Hijacking o SQLi)",
+      "comando": "bash -c 'source /home/lopex/backup_env.sh && restic restore latest --target /home/lopex/restauracion_web --include /tmp/all_databases.sql && mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql'",
+      "explicacion": "Restaura el dump completo de bases de datos desde el último snapshot restic y lo reimporta con mysql. Esta acción extrema es necesaria cuando un ataque (ej. XSS + Robo de Sesión) ha resultado en la modificación de contraseñas de administradores, asegurando la erradicación de accesos persistentes no autorizados."
     }
   ]
 }

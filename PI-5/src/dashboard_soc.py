@@ -40,6 +40,9 @@ mqtt_client = None
 mqtt_init_error = None
 TOPIC_PUBLISH_COMANDO = config['mqtt']['topic_publish_comando']
 
+import threading
+mqtt_client_lock = threading.Lock()
+
 def get_mqtt_client(max_attempts=4, initial_delay=1.0):
     """
     Devuelve un cliente MQTT vivo. Si la conexion previa cayo o nunca se
@@ -51,18 +54,25 @@ def get_mqtt_client(max_attempts=4, initial_delay=1.0):
     que el endpoint HTTP no se cuelgue indefinidamente.
     """
     global mqtt_client, mqtt_init_error
+    
+    # First quick check without lock
     if mqtt_client is not None and mqtt_client.is_alive():
         return mqtt_client
 
-    # Si el cliente existe pero está muerto (zombie), lo desconectamos
-    # limpiamente para liberar recursos antes de reconectar.
-    if mqtt_client is not None:
-        logger.warning("[WARNING] MQTT dashboard client is zombie — disconnecting before reconnect.")
-        try:
-            mqtt_client.disconnect()
-        except Exception:
-            pass
-        mqtt_client = None
+    with mqtt_client_lock:
+        # Double-check inside lock
+        if mqtt_client is not None and mqtt_client.is_alive():
+            return mqtt_client
+
+        # Si el cliente existe pero está muerto (zombie), lo desconectamos
+        # limpiamente para liberar recursos antes de reconectar.
+        if mqtt_client is not None:
+            logger.warning("[WARNING] MQTT dashboard client is zombie — disconnecting before reconnect.")
+            try:
+                mqtt_client.disconnect()
+            except Exception:
+                pass
+            mqtt_client = None
 
     ENDPOINT = config['aws']['endpoint']
     CLIENT_ID = "Dashboard-SOC-Pi5"
@@ -635,15 +645,29 @@ def approve_mitigation():
                 f"[INFO] Sending approved mitigation ({classification.level.label()}) "
                 f"to {topic}: {final_command}"
             )
-            try:
-                signed_payload = signing.sign_payload(action_payload)
-                mqtt_client.publish(topic, signed_payload, wait_for_ack=True)
-            except Exception as pub_err:
-                logger.error(f"[ERROR] Publish HITL fallo, no se actualiza DB: {pub_err}")
+            # Retry logic for publish
+            publish_success = False
+            last_pub_err = None
+            for attempt in range(2):
+                client = get_mqtt_client()
+                if not client or not client.is_alive():
+                    last_pub_err = "MQTT client not connected"
+                    break
+                try:
+                    signed_payload = signing.sign_payload(action_payload)
+                    client.publish(topic, signed_payload, wait_for_ack=True)
+                    publish_success = True
+                    break
+                except Exception as pub_err:
+                    last_pub_err = str(pub_err)
+                    logger.warning(f"[WARNING] Publish HITL attempt {attempt+1} failed: {pub_err}. Reconnecting...")
+            
+            if not publish_success:
+                logger.error(f"[ERROR] Publish HITL fallo tras reintentos, no se actualiza DB: {last_pub_err}")
                 conn.close()
                 return jsonify({
                     "status": "error",
-                    "message": f"MQTT publish failed: {pub_err}"
+                    "message": f"MQTT publish failed: {last_pub_err}"
                 }), 502
             policy_engine.audit(
                 event_type="APPROVE",
@@ -801,15 +825,29 @@ def revert_action(log_id):
             f"[INFO] Sending revert ({revert_classification.level.label()}) "
             f"to {topic}: {revert_command}"
         )
-        try:
-            signed_payload = signing.sign_payload(action_payload)
-            mqtt_client.publish(topic, signed_payload, wait_for_ack=True)
-        except Exception as pub_err:
-            logger.error(f"[ERROR] Publish revert fallo: {pub_err}")
+        # Retry logic for publish
+        publish_success = False
+        last_pub_err = None
+        for attempt in range(2):
+            client = get_mqtt_client()
+            if not client or not client.is_alive():
+                last_pub_err = "MQTT client not connected"
+                break
+            try:
+                signed_payload = signing.sign_payload(action_payload)
+                client.publish(topic, signed_payload, wait_for_ack=True)
+                publish_success = True
+                break
+            except Exception as pub_err:
+                last_pub_err = str(pub_err)
+                logger.warning(f"[WARNING] Publish revert attempt {attempt+1} failed: {pub_err}. Reconnecting...")
+        
+        if not publish_success:
+            logger.error(f"[ERROR] Publish revert fallo tras reintentos: {last_pub_err}")
             conn.close()
             return jsonify({
                 "status": "error",
-                "message": f"MQTT publish failed: {pub_err}"
+                "message": f"MQTT publish failed: {last_pub_err}"
             }), 502
         policy_engine.audit(
             event_type="REVERT",

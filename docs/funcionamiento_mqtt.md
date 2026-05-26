@@ -37,9 +37,9 @@ seguridad/<device>/respuesta    ← upstream   (resultado de ejecutar un comando
 │  agente_monitor3.py                       │    │                                                 │
 │                                           │    │  main_coordinator.py (client_id = Pi5-dani)     │
 │  PUB → seguridad/Pi4-Felix/telemetria     │───►│  SUB ← seguridad/+/telemetria   ─┐              │
-│  PUB → seguridad/Pi4-Felix/evento         │───►│  SUB ← seguridad/+/evento       ─┤→ TRIAGE Q   │
-│                                           │    │                                  │             │
-│                                           │    │      ↓ batch (10 msgs ó 15 s)    │             │
+│  PUB → seguridad/Pi4-Felix/evento         │───►│  SUB ← seguridad/+/evento       ─┤→ triage_queue │
+│                                           │    │                                  │ (async)       │
+│                                           │    │      ↓ (procesamiento inmediato) │             │
 │                                           │    │      ↓                           │             │
 │                                           │    │  ADK Runner → triage_agent       │             │
 │                                           │    │      │                           │             │
@@ -52,8 +52,8 @@ seguridad/<device>/respuesta    ← upstream   (resultado de ejecutar un comando
 │      ↓                                    │    │                                                 │
 │  ejecuta_comando_seguro (whitelist)       │    │                                                 │
 │      ↓                                    │    │                                                 │
-│  PUB → seguridad/Pi4-Felix/respuesta      │───►│  SUB ← seguridad/+/respuesta  ──→ FEEDBACK Q    │
-│                                           │    │      ↓                                          │
+│  PUB → seguridad/Pi4-Felix/respuesta      │───►│  SUB ← seguridad/+/respuesta  ──→ feedback_queue│
+│                                           │    │      ↓                           (async)        │
 │                                           │    │  ADK Runner → feedback_agent                    │
 │                                           │    │      └─ update_alert_status → BD                │
 └───────────────────────────────────────────┘    │                                                 │
@@ -93,16 +93,16 @@ En [main_coordinator.py:process_event](../PI-5/src/main_coordinator.py):
 queue_type = "feedback" if topic.endswith("/respuesta") else "triage"
 ```
 
-- Cualquier mensaje cuyo topic termine en `/respuesta` → cola del **feedback_agent**.
-- Todo lo demás (telemetría y eventos) → cola del **triage_agent**.
+- Cualquier mensaje cuyo topic termine en `/respuesta` → cola del **feedback_agent** (`feedback_queue`).
+- Todo lo demás (telemetría y eventos) → cola del **triage_agent** (`triage_queue`).
 
-Las colas tienen disparador dual: se vacían cuando se acumulan 10 mensajes o pasan 15 segundos sin flush (lo que ocurra primero). Esto se configura en `config.yml` → `batch.max_size` y `batch.flush_interval`.
+Las colas son asíncronas (`asyncio.Queue`) y procesan cada mensaje al instante (0ms de latencia artificial) a través de un worker dedicado. Para evitar saturación por ráfagas excesivas, se configura un límite de backpressure en `config.yml` → `queue.max_size` (default 100).
 
 ## Flujo end-to-end de un incidente
 
 1. **Detección en PI-4**: SSH/FTP/Apache/Web app detecta algo. Si es alerta inmediata (SQLi, brute force…) → `seguridad/Pi4-Felix/evento`. Si es resumen periódico (cada 30 s) → `seguridad/Pi4-Felix/telemetria`.
-2. **Recepción en PI-5**: el coordinador captura el mensaje (matches wildcard `seguridad/+/evento` o `…/telemetria`), lo encola en `TRIAGE_Q` con el dispositivo origen.
-3. **Análisis**: cuando el batch dispara, `triage_agent` (LLM ADK) recibe el lote y decide:
+2. **Recepción en PI-5**: el coordinador captura el mensaje (matches wildcard `seguridad/+/evento` o `…/telemetria`), lo encola de forma thread-safe en `triage_queue`.
+3. **Análisis**: de inmediato, el worker asíncrono del `triage_agent` (LLM ADK) consume el mensaje y decide:
    - Tráfico benigno → no hace nada.
    - Ataque confirmado → llama `register_alert` (escribe en BD `logs`).
    - Si hace falta info adicional → `execute_diagnostic_command` → publica en `seguridad/Pi4-Felix/comando` (sin HITL, solo si el comando pasa la blacklist).
@@ -110,7 +110,7 @@ Las colas tienen disparador dual: se vacían cuando se acumulan 10 mensajes o pa
 4. **HITL (Human in the Loop)**: el dashboard web muestra los `PENDING` en la "Live Threat Feed". Cuando el operador aprueba en el botón "Revisar Mitigación", el dashboard publica el comando en `seguridad/Pi4-Felix/comando`.
 5. **Ejecución en PI-4**: el sensor recibe el mensaje en su suscripción específica, lo pasa por `ejecutar_comando_seguro` (whitelist de binarios) y lo ejecuta con timeout 30s.
 6. **Respuesta**: PI-4 publica `{"sensor":"Pi4-Felix","status":"success|error","output":"…"}` en `seguridad/Pi4-Felix/respuesta`.
-7. **Cierre del bucle**: el coordinador captura la respuesta (matches `seguridad/+/respuesta`), la enruta a la cola `FEEDBACK_Q`, el `feedback_agent` llama a `update_alert_status` y el campo `estado_mitigacion` en la BD pasa a "EXITO" o "FALLO". El dashboard lo muestra inmediatamente en la siguiente refresco (5 s).
+7. **Cierre del bucle**: el coordinador captura la respuesta (matches `seguridad/+/respuesta`), la enruta a `feedback_queue`, el worker del `feedback_agent` la consume inmediatamente, llama a `update_alert_status` y el campo `estado_mitigacion` en la BD se complementa. El dashboard lo muestra inmediatamente en el siguiente refresco (5 s).
 
 ## Compatibilidad con la AWS IoT Policy
 
@@ -227,7 +227,7 @@ El PUBACK síncrono solo garantiza que **AWS** aceptó el comando. Para confirma
 Cuando llega un mensaje en `seguridad/+/respuesta`, el coordinador hace **dos cosas**:
 
 1. **Fast-path síncrono** (sin LLM): si el comando correlaciona con un dispatch reciente, escribe `estado_mitigacion` en la fila exacta. Esto da feedback al operador en ~1 s.
-2. **Cola del feedback_agent** (con LLM, batch 15 s): el mensaje se sigue encolando para el agente de IA, que puede aprender de la respuesta y actualizar políticas futuras.
+2. **Cola del feedback_agent** (con LLM, procesamiento inmediato asíncrono): el mensaje se encola para el agente de IA, que consume y procesa de inmediato el feedback de forma secuencial sin bloquear el flujo principal.
 
 Los dos caminos no se pisan: el fast-path escribe en `estado_mitigacion` con prefijo `[EXITO]/[FALLO]`; el agente, si llama a `update_alert_status` después, hace `||` (concatenación) y deja constancia de su análisis sin sobrescribir el resultado crudo.
 

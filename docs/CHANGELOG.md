@@ -9,6 +9,27 @@ tags: ["changelog", "releases", "history"]
 
 Registro de todos los cambios significativos del proyecto. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [2026-05-20] — Procesamiento Inmediato con asyncio.Queue
+
+Reemplazo completo del sistema de microbatching con doble trigger por un sistema de colas asíncronas para eliminar delays artificiales y usar la API recomendada `runner.run_async()`.
+
+### ✨ Añadido
+- **Workers asíncronos**: Implementación de `_worker()` utilizando `runner.run_async()` de Google ADK.
+- **Puente Thread-Safe**: Método `_enqueue_from_thread` con `call_soon_threadsafe` para pasar eventos del hilo de callbacks de `awscrt` al event loop de asyncio.
+- **Backpressure**: Configuración de `queue.max_size` en `config.yml` con límite de 100 eventos para proteger la memoria de la PI-5.
+
+### 🔧 Cambiado
+- **Eliminación de Microbatches**: Se elimina la clase `LogBatchQueue`, los dispatchers periódicos y las esperas artificiales. El primer evento se procesa a los 0ms de llegar.
+- **Loop de Eventos**: El entry point de `main_coordinator.py` ahora corre sobre `asyncio.run(main())`.
+
+### 📁 Archivos modificados hoy
+| Archivo | Tipo de cambio |
+|---------|---------------|
+| `PI-5/config.yml` | Sección `queue` de backpressure en lugar de `batch` |
+| `PI-5/src/main_coordinator.py` | Migración de threading/LogBatchQueue a asyncio/Queue |
+| `PI-5/tests/test_agent_flow.py` | Ajustes en comentarios del test de flujo |
+| `docs/*` | Actualización de toda la documentación técnica sobre el flujo de colas y latencia |
+
 ---
 
 ## [2026-05-19] — Firma Ed25519, Reconexión MQTT, Rediseño Dashboard

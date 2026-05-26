@@ -26,7 +26,7 @@ from aws_connector import AWSMqttClient
 # ── Almacén de feedback ──────────────────────────────────────────────
 respuestas_recibidas = []
 
-def on_feedback(topic, payload, **kwargs):
+def on_feedback(topic, payload, dup=None, qos=None, retain=None, **kwargs):
     """Callback que almacena las respuestas del sensor (simuladas)."""
     try:
         data = json.loads(payload.decode("utf-8"))
@@ -46,7 +46,7 @@ def mock_pi4(client, topic_comandos, topic_out):
     Se suscribe al topic de comandos dirigidos a la Pi 4 y responde
     automáticamente como si fuera el sensor real.
     """
-    def handler(topic, payload, **kwargs):
+    def handler(topic, payload, dup=None, qos=None, retain=None, **kwargs):
         try:
             datos = json.loads(payload.decode("utf-8"))
             comando = datos.get("comando", "")

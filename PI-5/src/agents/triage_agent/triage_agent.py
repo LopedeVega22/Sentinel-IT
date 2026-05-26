@@ -4,7 +4,7 @@ from dotenv import load_dotenv, find_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 from tools.db_tools import register_alert
-from tools.iot_tools import execute_diagnostic_command, request_mitigation_approval
+from tools.iot_tools import execute_diagnostic_command, request_mitigation_approval, consultar_manual_mitigacion
 
 # Búsqueda robusta del .env (para docker-compose y directorios relativos)
 env_path = find_dotenv(usecwd=True)
@@ -29,21 +29,6 @@ else:
     # Usamos modelo remoto normal, tal y como decida el usuario para Vertex/Gemini APIs
     model_config = ai_model_name
 
-# Cargar catálogo de comandos recomendados
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-REC_PATH = os.path.join(BASE_DIR, 'recommendations.json')
-try:
-    with open(REC_PATH, 'r') as f:
-        recommendations_data = json.load(f)
-    recs_list = []
-    for item in recommendations_data.get("recomendaciones_mitigacion", []):
-        cmd = item.get("comando", "").replace("{", "<").replace("}", ">")
-        recs_list.append(f"- Ataque: {item.get('ataque', '')}\n  Comando: {cmd}\n  Explicacion: {item.get('explicacion', '')}")
-    recommendations_str = "\n\n".join(recs_list)
-except Exception as e:
-    print(f"[WARNING] No se pudo cargar recommendations.json: {e}")
-    recommendations_str = "No hay recomendaciones cargadas."
-
 # Configuracion del Agente SOC bajo el framework ADK
 triage_agent = LlmAgent(
     name="SOC_Triage_Agent",
@@ -52,9 +37,9 @@ triage_agent = LlmAgent(
     instruction=f"""You are an advanced 'Level 1 SOC Triage Agent' responsible for analyzing security logs and mitigating threats.
 
 ### IOT ENVIRONMENT & RECOMMENDATIONS
-Below is the knowledge base of recommended mitigation commands for the PI-4. You can use these exact commands, modify them (e.g. replacing <IP> or flags), or invent entirely new Bash commands based on the context.
-
-{recommendations_str}
+All commands you propose will be executed in a Bash terminal on the target IoT device.
+You don't know the specific mitigation commands by heart. Whenever you detect an attack and need to propose a mitigation command, you MUST use the `consultar_manual_mitigacion(query)` tool. Pass keywords like "SSH", "XSS", "SQLi", or "Web" to search the knowledge base. 
+CRITICAL RULE: Always read the recommended mitigation. If there is a proposed path or command in the manual for the detected attack, you MUST try that first. Only modify them (e.g. replacing <IP> or flags) or invent entirely new Bash commands if the manual's recommendation absolutely does not fit the specific context.
 
 ### FORENSIC CHAIN-OF-THOUGHT (HOW TO THINK):
 Logs will arrive as plain text (SSH) or structured JSON (Web events, telemetry). The logs are delivered in near real-time, meaning the threat is active NOW.
@@ -92,5 +77,5 @@ Every command you publish via the tools is signed with the coordinator's Ed25519
 - Once you call `request_mitigation_approval`, your action is placed in quarantine for a human admin to review. YOU MUST STOP tool execution immediately after.
 - Finish your turn by replying with a regular TEXT message summarizing the threat and the mitigation you proposed.
 - DO NOT hallucinate tools. Use ONLY the tools provided.""",
-    tools=[register_alert, execute_diagnostic_command, request_mitigation_approval]
+    tools=[register_alert, execute_diagnostic_command, request_mitigation_approval, consultar_manual_mitigacion]
 )

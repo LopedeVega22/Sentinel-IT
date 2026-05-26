@@ -89,7 +89,7 @@ def step(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # Captura de comandos emitidos por el coordinador (simulamos a la PI-4)
 # ---------------------------------------------------------------------------
-def on_command_from_coordinator(topic, payload, **kwargs):
+def on_command_from_coordinator(topic, payload, dup=None, qos=None, retain=None, **kwargs):
     try:
         data = json.loads(payload.decode("utf-8"))
         entry = {

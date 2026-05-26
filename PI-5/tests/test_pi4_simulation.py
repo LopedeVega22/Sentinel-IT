@@ -25,7 +25,7 @@ TOPIC_CMD_IN   = "seguridad/acciones/Pi4-Sensor-01"
 TOPIC_FB_OUT   = "seguridad/acciones/Pi4-Sensor-01/out"
 
 # Callback cuando la Pi 5 (el Coordinator) nos manda un comando por MQTT
-def on_command_received(topic, payload, **kwargs):
+def on_command_received(topic, payload, dup=None, qos=None, retain=None, **kwargs):
     print(f"\n[📥 RECIBIDO DE LA PI 5] Topic: {topic}")
     try:
         data = json.loads(payload.decode('utf-8')) if isinstance(payload, bytes) else json.loads(payload)

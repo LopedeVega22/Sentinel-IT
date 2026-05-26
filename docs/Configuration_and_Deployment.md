@@ -66,9 +66,8 @@ retention:
   max_days: 30          # purga filas 'Solo Registro' más antiguas
   purge_on_insert: true # ejecuta la purga antes de cada register_alert
 
-batch:
-  max_size: 10          # flush al alcanzar 10 logs en la cola
-  flush_interval: 15    # flush si pasan 15 s desde el último flush
+queue:
+  max_size: 100         # límite de backpressure por cola de agente (triage, feedback)
 ```
 
 Cada sección la consume:
@@ -82,7 +81,7 @@ Cada sección la consume:
 | `agent.model_name` | `triage_agent.py`, `feedback_agent.py` | [Agent_Architecture.md](Agent_Architecture.md) |
 | `logging.*` | `main_coordinator.py` | — |
 | `retention.*` | `db_tools.rotate_old_logs` | [Database_Schema.md](Database_Schema.md) |
-| `batch.*` | `main_coordinator.LogBatchQueue` | [Agent_Architecture.md](Agent_Architecture.md) |
+| `queue.*` | `main_coordinator.py` | [Agent_Architecture.md](Agent_Architecture.md) |
 
 ### 3.2 `PI-5/.env` — Secretos y modo de IA
 
@@ -265,7 +264,7 @@ Ambos perfiles son intercambiables sin tocar código: solo se cambian `AI_MODE` 
 
 | Fichero | Contenido | Rotación |
 |---------|-----------|----------|
-| `coordinator_soc.log` | Eventos MQTT, batches, decisiones del Policy Engine, errores del coordinator | 5 MB × 3 archivos |
+| `coordinator_soc.log` | Eventos MQTT, decisiones del Policy Engine, errores del coordinator | 5 MB × 3 archivos |
 | `dashboard_soc.log` | Peticiones Flask, errores HITL/revert, conexiones MQTT del dashboard | 5 MB × 3 archivos |
 | Stdout/stderr del contenedor | Mismo contenido + warnings de Python | Lo gestiona Docker |
 
@@ -383,7 +382,7 @@ Si el dashboard se expone fuera de la LAN, **poner un reverse proxy con TLS por 
        python scripts/generate_signing_keys.py
        (Copiar la .pub resultante al directorio del agente de PI-4)
 [ ] Crear PI-5/.env con DASHBOARD_PASSWORD y (si AI_MODE=api) GEMINI_API_KEY.
-[ ] Validar PI-5/config.yml: endpoint AWS correcto, db_path, batch sizing.
+[ ] Validar PI-5/config.yml: endpoint AWS correcto, db_path, queue sizing.
 [ ] sudo ./PI-5/soc_manager.sh → opción 1 (cloud) o 2 (local-ai).
 [ ] Abrir http://<ip-pi5>:5000  → autenticarse → confirmar que carga el dashboard.
 [ ] Desde Pi-4 o test_local.py: publicar un log en seguridad/<dev>/evento.

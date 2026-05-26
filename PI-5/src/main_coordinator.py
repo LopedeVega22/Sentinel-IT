@@ -254,7 +254,7 @@ def _format_normalized_feedback(norm: dict) -> str:
 # ===========================================================================
 # MQTT Callback
 # ===========================================================================
-def process_event(topic, payload, **kwargs):
+def process_event(topic, payload, dup=None, qos=None, retain=None, **kwargs):
     """AWS IoT Callback: Receives the raw log and enqueues it for immediate processing."""
     try:
         data = json.loads(payload.decode('utf-8'))

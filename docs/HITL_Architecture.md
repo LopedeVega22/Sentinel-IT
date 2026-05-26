@@ -74,8 +74,8 @@ PUBACK from AWS proves the broker accepted the message, **not** that PI-4 execut
 
 5. PI-4 executes the command and publishes the result.
 6. `main_coordinator.process_event` receives `seguridad/+/respuesta` and calls `policy_engine.match_feedback(executed_cmd, device)`. The dispatch cache is normalized for whitespace, so `"cmd "` (trailing space from PI-4 echo) still matches `"cmd"`.
-7. If a match exists, the coordinator calls `db_tools.mark_mitigation_result(log_id, 'EXITO'|'FALLO', output)` — synchronous SQLite write, no batch, no LLM. The row's `estado_mitigacion` is populated within ~10 ms of MQTT receipt.
-8. The same `/respuesta` message is still enqueued for the feedback_agent so the LLM gets the analytical context.
+7. If a match exists, the coordinator calls `db_tools.mark_mitigation_result(log_id, 'EXITO'|'FALLO', output)` — synchronous SQLite write, immediate, no LLM. The row's `estado_mitigacion` is populated within ~10 ms of MQTT receipt.
+8. The same `/respuesta` message is still enqueued for the feedback_agent in its queue so the LLM gets the analytical context.
 
 ### Flow on the dashboard
 

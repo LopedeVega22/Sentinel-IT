@@ -233,7 +233,7 @@ GET /api/mitigate/status/123
 | contiene `[FALLO]` | `failed` | PI-4 reportó error → toast rojo con detalle, detiene poll |
 | otro contenido | `feedback` | Hay feedback pero sin marca clara → toast neutro |
 
-**Quién rellena `estado_mitigacion`:** la vía rápida es `main_coordinator.process_event` → `mark_mitigation_result(log_id, ...)` en cuanto llega `seguridad/<device>/respuesta`. La vía lenta (compatible) es `feedback_agent` → `update_alert_status` cuando vacía su batch — solo escribe si la rápida no llegó antes (la rápida prefija con `[EXITO]/[FALLO]`; la lenta concatena con `||`).
+**Quién rellena `estado_mitigacion`:** la vía rápida es `main_coordinator.process_event` → `mark_mitigation_result(log_id, ...)` en cuanto llega `seguridad/<device>/respuesta`. La vía asíncrona compatible es `feedback_agent` → `update_alert_status` cuando procesa el mensaje en su cola asíncrona — solo escribe si la rápida no llegó antes (la rápida prefija con `[EXITO]/[FALLO]`; la lenta concatena con `||`).
 
 **Por qué este endpoint es de solo lectura:** no muta nada. Es seguro pollearlo agresivamente.
 
@@ -254,7 +254,7 @@ No usa WebSockets ni SSE. Polling es suficiente para los volúmenes del MVP (dec
 - **Nunca se suscribe a MQTT:** el dashboard solo publica. Toda la información para mostrar viene de SQLite. Esto evita carreras entre el thread MQTT del coordinador y el de Flask.
 - **WAL siempre:** todas las conexiones a SQLite hacen `PRAGMA journal_mode=WAL` para permitir lecturas concurrentes con la escritura del coordinator.
 - **Re-clasificación tras edición humana:** `approve_mitigation` siempre re-pasa el comando final por `policy_engine.classify`, sin asumir que coincide con el original.
-- **No invalidar mitigaciones de PI-4 directamente:** si una mitigación falla (PI-4 reporta `status='error'`), eso lo gestiona el `feedback_agent` en su próximo batch — el dashboard no toca la BD por esa razón.
+- **No invalidar mitigaciones de PI-4 directamente:** si una mitigación falla (PI-4 reporta `status='error'`), eso lo gestiona de forma asíncrona el `feedback_agent` — el dashboard no toca la BD por esa razón.
 - **Logs rotativos:** `/tmp/dashboard_soc.log` con `RotatingFileHandler` (5 MB × 3 archivos). En despliegue Docker se mapea al host vía volumen.
 
 ## 11. Configuración relevante

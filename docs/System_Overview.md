@@ -54,7 +54,7 @@ PI-5/
 │   │   └── policy_engine.py    ← Motor de clasificación + audit + verify_feedback
 │   └── templates/
 │       └── index.html          ← Single-page dashboard (glassmorphism)
-├── config.yml                  ← Configuración centralizada (AWS, MQTT, batch, retention)
+├── config.yml                  ← Configuración centralizada (AWS, MQTT, queue, retention)
 ├── docker-compose.yml          ← Servicios: coordinator + (opcional) local-ai-engine
 ├── Dockerfile                  ← Imagen Python con dependencias ADK + awsiotsdk
 ├── soc_manager.sh              ← CLI interactivo para levantar/monitorizar/purgar
@@ -78,11 +78,12 @@ Punto de entrada del coordinador. Responsabilidades en orden de ejecución:
 1. Carga `config.yml`.
 2. Inicializa logging rotativo y el cliente MQTT.
 3. Crea **dos `Runner` de ADK** (uno por agente) compartiendo un único `InMemorySessionService` y una sesión.
-4. Crea **dos `LogBatchQueue`** independientes (triage / feedback) con dispatcher daemon cada una.
-5. Suscribe el callback `process_event` a los tres topics de entrada (`telemetria`, `evento`, `respuesta`).
-6. Entra en bucle infinito; las threads daemon gestionan todo el trabajo.
+4. Crea **dos `asyncio.Queue`** independientes (triage / feedback) acotadas para backpressure.
+5. Inicia los workers asíncronos correspondientes que consumen de las colas.
+6. Suscribe el callback `process_event` a los tres topics de entrada (`telemetria`, `evento`, `respuesta`).
+7. Ejecuta el event loop de asyncio indefinidamente.
 
-`process_event` clasifica el mensaje por sufijo del topic, ejecuta el round-trip verification del Policy Engine si es una respuesta, y encola en la cola correspondiente. Detalles del flujo y el código de las colas en [Agent_Architecture.md](Agent_Architecture.md).
+`process_event` clasifica el mensaje por sufijo del topic, ejecuta el round-trip verification del Policy Engine si es una respuesta, y encola en la cola correspondiente de forma thread-safe usando `_enqueue_from_thread`. Detalles del flujo y el código de las colas en [Agent_Architecture.md](Agent_Architecture.md).
 
 ### 3.3 Agentes IA (`agents/`)
 
@@ -141,8 +142,8 @@ Caso canónico — fuerza bruta SSH contra el PI-4:
 ```
 1. PI-4: fail2ban / monitor detecta intento de login fallido repetido.
 2. PI-4 publica:  seguridad/Pi4-Felix/evento   { "raw_log": "...", "ip": "1.2.3.4" }
-3. PI-5: process_event lo encola en triage_queue.
-4. Tras 15 s o 10 eventos, batch_dispatcher flushea el lote al SOC_Triage_Agent.
+3. PI-5: process_event lo recibe y encola en triage_queue de forma thread-safe.
+4. El triage_task lo saca de la cola inmediatamente (0ms de latencia artificial) y lo envía al SOC_Triage_Agent.
 5. Triage analiza con Gemini, decide que es un ataque y llama tools en orden:
      a) register_alert(...)                  → fila en logs con status='LOGGED'
      b) request_mitigation_approval(
@@ -155,7 +156,7 @@ Caso canónico — fuerza bruta SSH contra el PI-4:
 9. PI-4 publica:  seguridad/Pi4-Felix/respuesta  { "comando": "...", "status": "success" }
 10. PI-5: process_event llama policy_engine.verify_feedback → MATCH (estaba en caché).
 11. Se encola en feedback_queue.
-12. Tras flush, SOC_Feedback_Agent llama update_alert_status('EXITO', ...).
+12. El feedback_task lo saca de la cola inmediatamente y el SOC_Feedback_Agent llama update_alert_status('EXITO', ...).
 13. El dashboard muestra la fila con badge verde [EXITO] en el siguiente refresh (5 s).
 14. El operador, si lo desea, pulsa REVERTIR; se calcula el comando inverso (-A → -D),
     se vuelve a publicar y se audita como REVERT.
@@ -181,7 +182,7 @@ Caso anómalo (PI-4 reporta haber ejecutado algo que el coordinador no emitió):
 10''. register_alert(attack_vector='INTRUSION-COMMAND-INJECTION', severity='Critica').
       audit(event_type='ANOMALY').
       No se encola al feedback_agent.
-11''. El triage lo verá en su próximo batch como una alerta crítica nueva.
+11''. El triage lo verá al encolarse en su cola como una alerta crítica nueva.
 ```
 
 ## 5. Cómo encaja AWS IoT Core
@@ -199,7 +200,7 @@ No se usa ni Device Shadow ni Rules Engine ni Jobs. Todo el routing vive en el c
 | Decisión | Justificación |
 |----------|---------------|
 | **Dual-agent (triage + feedback)** en vez de un único agente | Separa "qué hacer con un evento nuevo" de "qué hacer con la respuesta de una mitigación". Distintos prompts, distintas tools obligatorias, distintos contextos. |
-| **Microbatch con disparo dual (volumen o tiempo)** | Reduce las llamadas al modelo en escenarios de ráfaga sin perder reactividad cuando llegan eventos sueltos. |
+| **Procesamiento inmediato con colas asíncronas** | Elimina delays artificiales procesando eventos al instante (0ms de latencia) y encolando ráfagas secuencialmente para el LLM. |
 | **Policy Engine centralizado en PI-5** | Permite cambiar la política sin tocar PI-4. PI-4 ejecuta lo que llega; toda decisión vive en el core. |
 | **Audit log inmutable con triggers SQLite** | Garantía forense: ni la propia aplicación puede modificar el registro de decisiones. Mapea con NIST AU-2 e ISO 27001 A.12.4. |
 | **HITL solo para HIGH/CRITICAL** | Evita pedir confirmación constantemente por mitigaciones rutinarias (bloqueos IP). LOW auto-ejecuta + botón REVERTIR. |
@@ -227,7 +228,7 @@ No se usa ni Device Shadow ni Rules Engine ni Jobs. Todo el routing vive en el c
 - **mTLS** — TLS mutuo. Cliente y servidor se autentican con certificados.
 - **Policy Engine** — Motor que clasifica cada comando antes de publicarlo y verifica round-trip.
 - **Round-trip verification** — Cotejar que cada respuesta venga de un comando previamente emitido.
-- **Microbatch** — Acumular eventos en una cola y procesarlos en lote para amortizar las llamadas al LLM.
+- **asyncio.Queue / Procesamiento Inmediato** — Procesar los eventos de seguridad tan pronto como llegan usando workers asíncronos y colas acotadas.
 
 ## 9. Siguientes pasos
 
