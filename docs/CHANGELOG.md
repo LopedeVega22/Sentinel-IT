@@ -9,6 +9,28 @@ tags: ["changelog", "releases", "history"]
 
 Registro de todos los cambios significativos del proyecto. Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
+## [2026-05-27] - Revert editable con rollback explicito
+
+Correccion del flujo de **REVERTIR** en el dashboard del API 5. El comportamiento anterior podia construir comandos comentados (`# REVERT: ...`) o un fallback generico de `iptables -D`, lo que daba la sensacion de revertir sin garantizar que se estuviera deshaciendo el comando real ejecutado por PI-5.
+
+### Anadido
+- **Campo `revert_command` en `logs`**: almacena el rollback explicito de una mitigacion cuando el agente o PI-5 pueden conocerlo con seguridad.
+- **Parametro opcional `revert_command` en `request_mitigation_approval`**: triage y feedback pueden adjuntar el comando exacto que revierte la mitigacion propuesta.
+- **Helper `tools/revert_commands.py`**: deriva solo inversiones conservadoras conocidas (`iptables -A/-I` a `-D`, `ufw delete`, `systemctl/service start|stop|enable|disable`).
+- **Tests `test_revert_commands.py`**: cubren inversiones derivables y aseguran que un comando desconocido no genera rollback inventado.
+
+### Cambiado
+- El modal de revert usa un `<textarea>` editable y envia el comando elegido al backend.
+- `/revert/<id>` prioriza el comando editado por el operador, despues `revert_command`, y solo al final una derivacion segura desde `pending_command`.
+- Tras aprobar o revertir, `pending_command` se actualiza con el comando real enviado para que **VER COMANDO** muestre lo ultimo despachado.
+- Las instrucciones de los agentes especifican que deben dejar `revert_command` vacio cuando no exista rollback seguro sin estado previo.
+
+### Corregido
+- Ya no se publica un comentario como comando de reversión.
+- Ya no se inventa `sudo iptables -D INPUT -s <ip> -j DROP` para comandos que no eran ese bloqueo concreto.
+
+---
+
 ## [2026-05-20] — Procesamiento Inmediato con asyncio.Queue
 
 Reemplazo completo del sistema de microbatching con doble trigger por un sistema de colas asíncronas para eliminar delays artificiales y usar la API recomendada `runner.run_async()`.

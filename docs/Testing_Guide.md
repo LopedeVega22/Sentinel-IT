@@ -192,7 +192,7 @@ python -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee /tmp/test_run.
 Áreas que no tienen cobertura automatizada todavía:
 
 - **HITL completo:** un test que apruebe una mitigación PENDING vía el endpoint `/api/mitigate/approve` y verifique el flujo de re-clasificación + audit. Hoy solo se cubre con `test_dashboard_api.py` a nivel de smoke.
-- **Revert:** el flujo `/revert/<id>` no tiene test específico. Cubierto manualmente.
+- **Revert end-to-end completo:** existe cobertura unitaria para la derivación de rollback (`test_revert_commands.py`) y casos de endpoint en `test_dashboard_api.py`, pero falta una prueba E2E con MQTT real que confirme ejecución en PI-4 y round-trip de `estado_mitigacion`.
 - **Queues asíncronas:** no hay test que valide los límites de backpressure bajo carga pesada. El comportamiento se valida indirectamente en `test_agent_flow.py`.
 
 Estas mejoras quedan registradas en [futuras_mejoras.md](futuras_mejoras.md) (si se añaden) o como issues.

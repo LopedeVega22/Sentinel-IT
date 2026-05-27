@@ -46,7 +46,8 @@ No hay más endpoints. Cualquier funcionalidad nueva (export, filtrado avanzado,
 {
   "logs":            [ { id, device, service, raw_log, source_ip, severity,
                          verdict, action, mitigation_status, status,
-                         pending_command, rationale, timestamp } ],   // 20 últimas
+                         pending_command, rationale, timestamp,
+                         revert_command } ],   // 20 últimas
   "total_logs":      1234,
   "total_criticals": 12,
   "total_blocks":    45,         // status='APPROVED'
@@ -188,24 +189,27 @@ POST /revert/123
 Lógica:
 
 ```
-1. Leer la fila: ip_origen, accion_tomada, dispositivo, pending_command, status.
+1. Leer la fila: ip_origen, accion_tomada, dispositivo, pending_command, status, revert_command.
 2. Si NO está bloqueada (status != 'APPROVED' y no contiene 'bloque'): 400.
-3. Derivar el comando inverso:
-     - Si pending_command tiene ' -A ' o ' --append ' → reemplazar por ' -D ' / ' --delete '.
-     - Si no se reconoce el patrón → prefijar '# REVERT:' (revisar manualmente).
-     - Fallback histórico: "sudo iptables -D INPUT -s <ip> -j DROP".
+3. Seleccionar el comando de reversión:
+     - Si el operador envió `command` en el JSON, usar ese valor editado.
+     - Si la fila tiene `revert_command`, usar ese rollback explícito.
+     - Si no hay rollback guardado, intentar derivar solo patrones seguros: `iptables -A/-I/--append/--insert` → `-D/--delete`, `ufw deny/reject/allow` → `ufw delete ...`, y `systemctl/service start|stop|enable|disable` → operación contraria.
+     - Si no se puede derivar, devolver 400 si el comando queda vacío. El frontend deja el textarea editable vacío para que el operador escriba el rollback real.
+     - Se rechaza cualquier comando que empiece por `#`; nunca se publica un comentario como reversión.
 4. Re-clasificar el comando inverso con policy_engine.classify(...).
 5. mqtt.publish(seguridad/<device>/comando, payload, wait_for_ack=True)
    ├─ Misma garantia que approve: espera PUBACK; si falla, return 502 sin tocar BD.
    policy_engine.record_dispatch(cmd, device, log_id=log_id)
    audit(REVERT)
 6. UPDATE logs SET status='REVERTED',
+                  pending_command=<comando revert enviado>,
                   estado_mitigacion=NULL,        ← resetea para round-trip
                   accion_tomada += '[REVERTIDO]'.
 7. return 200 { status:'dispatching', log_id }   ← el front pollea igual que approve
 ```
 
-La columna `pending_command` se rellena tanto cuando entra en cuarentena HITL como cuando se auto-ejecuta LOW (ver [iot_tools.py `_auto_execute_low`](../PI-5/src/tools/iot_tools.py)). Por eso ambas rutas pueden ser revertidas con el mismo botón.
+La columna `pending_command` se rellena tanto cuando entra en cuarentena HITL como cuando se auto-ejecuta LOW (ver [iot_tools.py `_auto_execute_low`](../PI-5/src/tools/iot_tools.py)). La columna `revert_command` guarda el rollback exacto si el agente lo pudo proponer al crear la mitigación. Si no existe rollback explícito, el dashboard solo deriva inversiones conservadoras; no inventa comandos genéricos.
 
 **Retry loop:** la UPDATE final se reintenta hasta 3 veces con `sleep(1)` ante `database is locked` (escenario plausible si llega un INSERT desde el coordinator en paralelo). Ver detalles del modo WAL en [Database_Schema.md](Database_Schema.md).
 

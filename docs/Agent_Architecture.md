@@ -23,7 +23,7 @@ No cubre el HITL del dashboard (eso está en `HITL_Architecture.md`), ni la lóg
 - **Tools expuestas:**
   - `register_alert(device, attack_vector, source_ip, severity, verdict, raw_log)` — escribe el incidente en SQLite. **Obligatoria una sola vez por amenaza confirmada.**
   - `execute_diagnostic_command(device, command, reason)` — diagnóstico de lectura. El Policy Engine decide: si es SAFE_READ se publica directo a `seguridad/<device>/comando`; cualquier otro nivel se redirige automáticamente al flujo HITL.
-  - `request_mitigation_approval(device, mitigation_command, rationale)` — propuesta de mitigación. LOW/SAFE_READ auto-ejecutan, HIGH/CRITICAL quedan en cuarentena (`status='PENDING'`) para revisión humana en el dashboard.
+  - `request_mitigation_approval(device, mitigation_command, rationale, revert_command="")` — propuesta de mitigación. LOW/SAFE_READ auto-ejecutan, HIGH/CRITICAL quedan en cuarentena (`status='PENDING'`) para revisión humana en el dashboard. Si el agente conoce un rollback real, lo pasa en `revert_command`; si no lo conoce, lo deja vacío.
 
 ### 2.2 SOC_Feedback_Agent (`src/agents/feedback_agent/feedback_agent.py`)
 
@@ -32,7 +32,7 @@ No cubre el HITL del dashboard (eso está en `HITL_Architecture.md`), ni la lóg
 - **Tools expuestas:**
   - `update_alert_status(device, command_result, mitigation_status)` — actualiza la última fila del dispositivo con `EXITO` o `FALLO`. **Obligatoria una sola vez por feedback.**
   - `execute_diagnostic_command` — si necesita más contexto tras un fallo.
-  - `request_mitigation_approval` — si el comando original falló, puede proponer una alternativa. **Esa propuesta vuelve a pasar por el Policy Engine**, por lo que en la práctica reabre el ciclo aunque el agente que propone sea el de feedback (no es necesario reencolar al triage).
+  - `request_mitigation_approval` — si el comando original falló, puede proponer una alternativa. **Esa propuesta vuelve a pasar por el Policy Engine**, por lo que en la práctica reabre el ciclo aunque el agente que propone sea el de feedback (no es necesario reencolar al triage). Igual que triage, debe adjuntar `revert_command` solo cuando el rollback sea concreto.
 
 ### 2.3 Runner ADK y sesión única
 
@@ -120,6 +120,7 @@ PI-4 sensor          PI-5 coordinator        Policy Engine     Triage Agent
 ### Triage
 - Llamar `register_alert` **exactamente una vez** por amenaza confirmada.
 - Después de `request_mitigation_approval` debe **parar** la ejecución de tools (queda en cuarentena humana si es HIGH/CRITICAL, o auto-ejecutado si LOW).
+- Si propone una mitigación reversible, debe incluir `revert_command` con el comando exacto que la deshace. Para comandos sin rollback seguro sin estado previo (`kill`, scripts arbitrarios, cambios de permisos sin snapshot, borrados, etc.), debe dejarlo vacío: el dashboard no inventará una reversión.
 - Si recibe un log con `attack_vector="INTRUSION-COMMAND-INJECTION"`, no propone nuevos comandos sobre ese dispositivo: el razonamiento debe orientarse a rotar credenciales/certificados.
 
 ### Feedback

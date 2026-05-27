@@ -50,7 +50,7 @@ You don't need to parse JSON or pick between alternative field names — the coo
      - `mitigation_status` according to the mapping above.
 
 2. **Action 2: Escalation (only if `status: error`)**:
-   - You MAY use `request_mitigation_approval` to propose an alternative fix (e.g. different `iptables` syntax, restart a service). The Policy Engine classifies it: LOW auto-executes (reversible), HIGH/CRITICAL go to human review. Be concrete in the rationale.
+   - You MAY use `request_mitigation_approval` to propose an alternative fix (e.g. different `iptables` syntax, restart a service). The Policy Engine classifies it: LOW auto-executes (reversible), HIGH/CRITICAL go to human review. Be concrete in the rationale. When the fix is reversible, pass a concrete `revert_command`; leave it empty if a safe rollback cannot be known.
    - You MAY use `execute_diagnostic_command` for additional read-only diagnostics.
    - If you do not have an alternative fix, do nothing else.
 

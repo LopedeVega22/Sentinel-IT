@@ -33,7 +33,8 @@ cursor.execute('''
         status TEXT DEFAULT 'LOGGED',
         pending_command TEXT,
         rationale TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        revert_command TEXT
     )
 ''')
 
@@ -47,6 +48,11 @@ try:
     cursor.execute("ALTER TABLE logs ADD COLUMN status TEXT DEFAULT 'LOGGED'")
     cursor.execute("ALTER TABLE logs ADD COLUMN pending_command TEXT")
     cursor.execute("ALTER TABLE logs ADD COLUMN rationale TEXT")
+except sqlite3.OperationalError:
+    pass
+
+try:
+    cursor.execute("ALTER TABLE logs ADD COLUMN revert_command TEXT")
 except sqlite3.OperationalError:
     pass
 

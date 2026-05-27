@@ -16,11 +16,6 @@
       "explicacion": "Bloquea tráfico TCP entrante desde la IP indicada en los puertos 80 y 8080. IMPORTANTE: hay que bloquear AMBOS puertos siempre — el 80 es solo el proxy que redirige internamente al 8080, donde está el servidor web real. Si solo bloqueas el 80, el atacante puede saltarse el filtro accediendo directamente al 8080."
     },
     {
-      "ataque": "Revertir bloqueo de IP en la web",
-      "comando": "sudo iptables -D INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -D INPUT -p tcp -s {ip} --dport 8080 -j DROP",
-      "explicacion": "Elimina las dos reglas iptables previas (puertos 80 y 8080) para una IP concreta. Usar tras confirmar falso positivo o cuando el atacante ya no es una amenaza."
-    },
-    {
       "ataque": "Recuperación tras defacement o modificación no autorizada de la web",
       "comando": "bash -c 'source /home/lopex/backup_env.sh && sudo -E restic restore latest --target / --include /var/www/html/sentinelti.com && sudo chown -R www-data:www-data /var/www/html/sentinelti.com'",
       "explicacion": "Restaura los archivos de /var/www/html/sentinelti.com desde el snapshot restic más reciente almacenado en S3 y reaplica el ownership www-data. El env-file backup_env.sh carga las credenciales AWS antes de invocar restic. Acción destructiva (sobrescribe ficheros actuales): exige confirmación humana explícita."

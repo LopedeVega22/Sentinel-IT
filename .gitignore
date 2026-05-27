@@ -12,6 +12,7 @@ env/
 # Agents & Tools
 .agents/
 .claude
+.codex-deps
 graphify-out/
 basura/
 ssh_run.py

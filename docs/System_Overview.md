@@ -106,7 +106,7 @@ Las **únicas** funciones que los agentes pueden invocar. Toda acción con efect
 | `register_alert(...)` | `db_tools.py` | INSERT en `logs` con `status='LOGGED'` |
 | `update_alert_status(...)` | `db_tools.py` | UPDATE de `estado_mitigacion` en la fila más reciente |
 | `execute_diagnostic_command(...)` | `iot_tools.py` | Publica en `seguridad/<device>/comando` si el Policy Engine lo clasifica SAFE_READ |
-| `request_mitigation_approval(...)` | `iot_tools.py` | Clasifica + auto-ejecuta (SAFE_READ/LOW) o cuarentena PENDING (HIGH/CRITICAL) |
+| `request_mitigation_approval(..., revert_command="")` | `iot_tools.py` | Clasifica + auto-ejecuta (SAFE_READ/LOW) o cuarentena PENDING (HIGH/CRITICAL); guarda rollback explícito si se proporciona |
 
 Cada vez que se publica un comando, `policy_engine.record_dispatch(...)` lo anota en la caché de despachos (TTL 5 min) para que `verify_feedback` pueda validarlo cuando vuelva la respuesta.
 
@@ -131,7 +131,7 @@ Flask + HTTP Basic Auth. Sirve:
 - Página única con feed de logs, métricas, gráficas de vectores y vista radar de topología.
 - Endpoint AJAX `/api/data` que refresca cada 5 s.
 - Endpoint `/api/mitigate/approve` para el flujo HITL.
-- Endpoint `/revert/<id>` para deshacer mitigaciones aprobadas (LOW auto-ejecutadas o HIGH/CRITICAL aprobadas manualmente).
+- Endpoint `/revert/<id>` para deshacer mitigaciones aprobadas (LOW auto-ejecutadas o HIGH/CRITICAL aprobadas manualmente) usando `revert_command`, una inversa derivable segura o un comando editado por el operador.
 
 Especificación completa: [Dashboard_Architecture.md](Dashboard_Architecture.md).
 
@@ -148,7 +148,8 @@ Caso canónico — fuerza bruta SSH contra el PI-4:
      a) register_alert(...)                  → fila en logs con status='LOGGED'
      b) request_mitigation_approval(
           "sudo iptables -A INPUT -s 1.2.3.4 -j DROP",
-          rationale="brute-force SSH")
+          rationale="brute-force SSH",
+          revert_command="sudo iptables -D INPUT -s 1.2.3.4 -j DROP")
 6. Policy Engine clasifica el comando como LOW (iptables -A contra IP concreta).
 7. _auto_execute_low() publica en seguridad/Pi4-Felix/comando + UPDATE status='APPROVED'.
    policy_engine.audit(event_type='AUTO_DISPATCH', ...).

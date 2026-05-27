@@ -7,6 +7,7 @@ import time
 
 from tools import policy_engine
 from tools import signing
+from tools.revert_commands import derive_revert_command
 
 # Definir rutas absolutas basadas en la ubicación de este script
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -121,7 +122,12 @@ def execute_diagnostic_command(device: str, command: str, reason: str) -> dict:
         logger.error(f"[ERROR] Error en execute_diagnostic_command: {e}")
         return {"status": "error", "message": str(e)}
 
-def request_mitigation_approval(device: str, mitigation_command: str, rationale: str) -> dict:
+def request_mitigation_approval(
+    device: str,
+    mitigation_command: str,
+    rationale: str,
+    revert_command: str = "",
+) -> dict:
     """
     Propone un comando de mitigacion. El Policy Engine decide el flujo segun el riesgo:
 
@@ -136,10 +142,17 @@ def request_mitigation_approval(device: str, mitigation_command: str, rationale:
         device: ID del dispositivo objetivo.
         mitigation_command: Comando Bash a ejecutar.
         rationale: Justificacion para el humano (o registro de auditoria).
+        revert_command: Comando Bash que revierte la mitigacion, si el agente
+            puede proponerlo de forma concreta.
     """
     try:
         # Sanitizar: eliminar comentarios de bash al final del comando (ej. "# (Comando inferido)")
         mitigation_command = re.sub(r'\s*#\s*\(.*?\)\s*$', '', mitigation_command).strip()
+        revert_command = re.sub(r'\s*#\s*\(.*?\)\s*$', '', revert_command or '').strip()
+        if revert_command.lstrip().startswith('#'):
+            revert_command = ''
+        if not revert_command:
+            revert_command = derive_revert_command(mitigation_command)
 
         cls = policy_engine.classify(mitigation_command)
         auto_execute = cls.level <= policy_engine.RiskLevel.LOW
@@ -152,15 +165,15 @@ def request_mitigation_approval(device: str, mitigation_command: str, rationale:
             decorated_rationale = f"[{cls.level.label()}] {rationale}"
 
         if auto_execute:
-            return _auto_execute_low(device, mitigation_command, decorated_rationale, cls)
-        return _quarantine_for_hitl(device, mitigation_command, decorated_rationale, cls, rationale)
+            return _auto_execute_low(device, mitigation_command, revert_command, decorated_rationale, cls)
+        return _quarantine_for_hitl(device, mitigation_command, revert_command, decorated_rationale, cls, rationale)
 
     except Exception as e:
         logger.error(f"[ERROR] Error en request_mitigation_approval: {e}")
         return {"status": "error", "message": str(e)}
 
 
-def _auto_execute_low(device: str, command: str, decorated_rationale: str,
+def _auto_execute_low(device: str, command: str, revert_command: str, decorated_rationale: str,
                       cls: 'policy_engine.Classification') -> dict:
     """Publica un comando LOW/SAFE_READ directo y deja la fila lista para REVERTIR."""
     if _iot_client is None:
@@ -186,6 +199,7 @@ def _auto_execute_low(device: str, command: str, decorated_rationale: str,
                 UPDATE logs
                 SET status = 'APPROVED',
                     pending_command = ?,
+                    revert_command = ?,
                     rationale = ?,
                     accion_tomada = CASE
                         WHEN accion_tomada = 'Solo Registro' THEN ?
@@ -197,7 +211,7 @@ def _auto_execute_low(device: str, command: str, decorated_rationale: str,
                     ORDER BY timestamp DESC
                     LIMIT 1
                 )
-            """, (command, decorated_rationale,
+            """, (command, revert_command, decorated_rationale,
                   f"Auto-ejecutado [{cls.level.label()}]: {command}",
                   f"\nAuto-ejecutado [{cls.level.label()}]: {command}", device))
             conn.commit()
@@ -229,6 +243,7 @@ def _auto_execute_low(device: str, command: str, decorated_rationale: str,
         "risk_level": cls.level.label(),
         "target": device,
         "command": command,
+        "revert_command": revert_command,
         "message": (
             f"Comando ejecutado automaticamente ({cls.level.label()}). "
             f"Puede revertirse desde el dashboard si fuera necesario."
@@ -236,7 +251,7 @@ def _auto_execute_low(device: str, command: str, decorated_rationale: str,
     }
 
 
-def _quarantine_for_hitl(device: str, command: str, decorated_rationale: str,
+def _quarantine_for_hitl(device: str, command: str, revert_command: str, decorated_rationale: str,
                          cls: 'policy_engine.Classification', raw_rationale: str) -> dict:
     """Deja un comando HIGH/CRITICAL en estado PENDING a la espera de revision humana."""
     for attempt in range(5):
@@ -249,6 +264,7 @@ def _quarantine_for_hitl(device: str, command: str, decorated_rationale: str,
                 UPDATE logs
                 SET status = 'PENDING',
                     pending_command = ?,
+                    revert_command = ?,
                     rationale = ?,
                     accion_tomada = CASE
                         WHEN accion_tomada = 'Solo Registro' THEN ?
@@ -260,7 +276,7 @@ def _quarantine_for_hitl(device: str, command: str, decorated_rationale: str,
                     ORDER BY timestamp DESC
                     LIMIT 1
                 )
-            """, (command, decorated_rationale,
+            """, (command, revert_command, decorated_rationale,
                   f"Requiere Revision: {command}",
                   f"\nRequiere Revision: {command}", device))
             conn.commit()
@@ -333,4 +349,3 @@ def consultar_manual_mitigacion(query: str) -> str:
     except Exception as e:
         logger.error(f"[ERROR] consultando manual de mitigacion: {e}")
         return f"Error consultando manual: {str(e)}"
-

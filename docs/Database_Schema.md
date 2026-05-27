@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS logs (
     status              TEXT DEFAULT 'LOGGED',   -- LOGGED | PENDING | APPROVED | REJECTED | REVERTED
     pending_command     TEXT,                    -- comando bash propuesto / auto-ejecutado
     rationale           TEXT,                    -- '[NIVEL] razón del agente o del motor'
-    timestamp           DATETIME DEFAULT CURRENT_TIMESTAMP
+    timestamp           DATETIME DEFAULT CURRENT_TIMESTAMP,
+    revert_command      TEXT                     -- rollback explícito si se conoce
 );
 ```
 
@@ -91,7 +92,7 @@ Notas importantes:
 
 - `LOGGED` es el estado inicial tras `register_alert`. Si la amenaza no requería acción, queda así para siempre.
 - `PENDING` solo lo escribe `_quarantine_for_hitl()` (HIGH/CRITICAL). El dashboard pinta estas filas con badge amarillo/rojo y botón "Revisar Mitigación".
-- `APPROVED` lo escribe **tanto** `_auto_execute_low()` (sin pasar por humano) **como** `approve_mitigation()` (tras HITL). En ambos casos `pending_command` queda relleno, así el botón REVERTIR funciona indistintamente.
+- `APPROVED` lo escribe **tanto** `_auto_execute_low()` (sin pasar por humano) **como** `approve_mitigation()` (tras HITL). En ambos casos `pending_command` queda relleno, así el botón REVERTIR funciona indistintamente. Si existe un rollback fiable, también se rellena `revert_command`.
 - `REJECTED` es terminal: la mitigación no se ejecutó. La fila queda como histórico.
 - `REVERTED`: hubo APPROVED previo y el operador deshizo. Si la mitigación inversa falla, eso se refleja en `estado_mitigacion` pero el `status` no vuelve atrás.
 
@@ -108,6 +109,13 @@ END
 
 Esto permite rastrear la historia operativa de una fila (`Solo Registro` → `Auto-ejecutado [LOW]: iptables -A...` → `[EXITO] OK` → `[REVERTIDO]`) sin tablas adicionales. La auditoría formal vive en `audit_log`, no aquí — este texto es para el operador, no para forense.
 
+### 3.2.1 `pending_command` vs `revert_command`
+
+- `pending_command` guarda el comando real enviado o pendiente de enviar. Tras un revert correcto, se actualiza con el comando de reversión despachado para que el botón **VER COMANDO** muestre lo último que salió hacia PI-4.
+- `revert_command` guarda el rollback explícito de la mitigación original, si el agente o el backend pueden conocerlo de forma segura.
+- Si `revert_command` está vacío, el dashboard solo intenta derivar inversiones conservadoras desde `pending_command` (`iptables -A/-I`, `ufw`, `systemctl/service start|stop`). Si no puede derivar una inversa, no inventa un comando: el operador debe escribirlo manualmente en el modal.
+- Los comandos que empiezan por `#` se rechazan antes de publicar. Un comentario nunca se considera reversión válida.
+
 ### 3.3 Migraciones
 
 `database.py` aplica migraciones de forma idempotente con `ALTER TABLE ADD COLUMN`:
@@ -119,6 +127,11 @@ try:
     cursor.execute("ALTER TABLE logs ADD COLUMN rationale TEXT")
 except sqlite3.OperationalError:
     pass  # Ya existían
+
+try:
+    cursor.execute("ALTER TABLE logs ADD COLUMN revert_command TEXT")
+except sqlite3.OperationalError:
+    pass
 ```
 
 Cualquier DB creada con el esquema viejo (pre-HITL) se actualiza al arrancar sin perder datos. Si se añaden columnas nuevas, repetir el patrón.
@@ -217,8 +230,8 @@ Esto evita que la DB crezca indefinidamente con telemetría benigna mientras con
 | `main_coordinator.py` | Solo a través de los tools | El coordinador no hace SQL directo, lo delega en `db_tools` / `iot_tools` / `policy_engine` |
 | `db_tools.register_alert` | INSERT en `logs` con retry x5 ante `database is locked` | Lleva `rotate_old_logs` integrado si está habilitado |
 | `db_tools.update_alert_status` | UPDATE en la fila más reciente del device (`ORDER BY timestamp DESC LIMIT 1`) | Concatenación, nunca sobrescribe |
-| `iot_tools._auto_execute_low` | UPDATE con retry x5 (`status='APPROVED'`, `pending_command`, `rationale`) | También llama `policy_engine.audit(AUTO_DISPATCH)` |
-| `iot_tools._quarantine_for_hitl` | UPDATE con retry x5 (`status='PENDING'`, ...) | También llama `policy_engine.audit(QUARANTINE)` |
+| `iot_tools._auto_execute_low` | UPDATE con retry x5 (`status='APPROVED'`, `pending_command`, `revert_command`, `rationale`) | También llama `policy_engine.audit(AUTO_DISPATCH)` |
+| `iot_tools._quarantine_for_hitl` | UPDATE con retry x5 (`status='PENDING'`, `pending_command`, `revert_command`, `rationale`) | También llama `policy_engine.audit(QUARANTINE)` |
 | `policy_engine.audit` | INSERT en `audit_log` | Único punto de escritura del audit log |
 | `dashboard_soc._get_connection` | SELECT (read-only) + UPDATE en HITL/revert | Siempre WAL, timeout 10 s |
 
@@ -269,7 +282,8 @@ CREATE TABLE logs (
     status TEXT DEFAULT 'LOGGED',
     pending_command TEXT,
     rationale TEXT,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    revert_command TEXT
 );
 
 -- Tabla 2: bitácora forense append-only

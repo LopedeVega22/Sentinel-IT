@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from aws_connector import AWSMqttClient
 from tools import policy_engine
 from tools import signing
+from tools.revert_commands import derive_revert_command
 
 # Load environment variables from .env file
 load_dotenv(os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), '.env'))
@@ -308,7 +309,8 @@ def _serialize_logs(data):
             "status": row[9] if len(row) > 9 else "LOGGED",
             "pending_command": row[10] if len(row) > 10 else "",
             "rationale": row[11] if len(row) > 11 else "",
-            "timestamp": row[12] if len(row) > 12 else (row[9] if len(row) > 9 else "")
+            "timestamp": row[12] if len(row) > 12 else (row[9] if len(row) > 9 else ""),
+            "revert_command": row[13] if len(row) > 13 else "",
         })
     return result
 
@@ -683,8 +685,16 @@ def approve_mitigation():
             # estamos esperando la respuesta de PI-4 (round-trip). El
             # coordinador lo rellenara en cuanto llegue el /respuesta.
             c.execute(
-                "UPDATE logs SET status = 'APPROVED', accion_tomada = ?, estado_mitigacion = NULL WHERE id = ?",
-                (new_action, log_id),
+                """
+                UPDATE logs
+                SET status = 'APPROVED',
+                    accion_tomada = ?,
+                    pending_command = ?,
+                    revert_command = ?,
+                    estado_mitigacion = NULL
+                WHERE id = ?
+                """,
+                (new_action, final_command, derive_revert_command(final_command, blocked_ip), log_id),
             )
             message = f"Comando despachado ({classification.level.label()}). Esperando confirmacion de PI-4."
 
@@ -780,21 +790,26 @@ def revert_action(log_id):
         conn = _get_connection()
         c = conn.cursor()
         try:
-            c.execute("SELECT ip_origen, accion_tomada, dispositivo, pending_command, status FROM logs WHERE id = ?", (log_id,))
+            c.execute("SELECT ip_origen, accion_tomada, dispositivo, pending_command, status, revert_command FROM logs WHERE id = ?", (log_id,))
             row = c.fetchone()
         except sqlite3.OperationalError:
-            c.execute("SELECT ip_origen, accion_tomada, dispositivo FROM logs WHERE id = ?", (log_id,))
-            row_partial = c.fetchone()
-            if row_partial:
-                row = (row_partial[0], row_partial[1], row_partial[2], "", "LOGGED")
-            else:
-                row = None
+            try:
+                c.execute("SELECT ip_origen, accion_tomada, dispositivo, pending_command, status FROM logs WHERE id = ?", (log_id,))
+                row_partial = c.fetchone()
+                row = (*row_partial, "") if row_partial else None
+            except sqlite3.OperationalError:
+                c.execute("SELECT ip_origen, accion_tomada, dispositivo FROM logs WHERE id = ?", (log_id,))
+                row_partial = c.fetchone()
+                if row_partial:
+                    row = (row_partial[0], row_partial[1], row_partial[2], "", "LOGGED", "")
+                else:
+                    row = None
         
         if not row:
             conn.close()
             return jsonify({"status": "error", "message": "Log not found"}), 404
             
-        blocked_ip, action_taken, device, pending_command, status = row
+        blocked_ip, action_taken, device, pending_command, status, saved_revert_command = row
         action_lower = str(action_taken).lower()
         is_blocked = (status == 'APPROVED') or ('bloque' in action_lower)
         
@@ -802,14 +817,23 @@ def revert_action(log_id):
             conn.close()
             return jsonify({"status": "error", "message": "No block action to revert"}), 400
             
-        # Derive inverse command dynamically from the stored pending_command
-        if pending_command and pending_command.strip() != '':
-            revert_command = pending_command.replace(' -A ', ' -D ').replace(' --append ', ' --delete ')
-            if revert_command == pending_command:
-                # Fallback: if no iptables pattern matched, prepend a comment for manual review
-                revert_command = f"# REVERT: {pending_command}"
+        # Parse custom command if provided by the frontend
+        req_data = request.get_json(silent=True) or {}
+        custom_command = req_data.get('command')
+        
+        if custom_command:
+            revert_command = custom_command.strip()
+        elif saved_revert_command and str(saved_revert_command).strip():
+            revert_command = str(saved_revert_command).strip()
         else:
-            revert_command = f"sudo iptables -D INPUT -s {blocked_ip} -j DROP"
+            revert_command = derive_revert_command(pending_command, blocked_ip)
+
+        if not revert_command:
+            conn.close()
+            return jsonify({"status": "error", "message": "No revert command provided"}), 400
+        if revert_command.lstrip().startswith('#'):
+            conn.close()
+            return jsonify({"status": "error", "message": "El comando de revert no puede ser un comentario"}), 400
             
         reason = f"Manual revert from dashboard for IP {blocked_ip}"
 
@@ -869,8 +893,15 @@ def revert_action(log_id):
                     # estado_mitigacion se limpia para que el front detecte el
                     # round-trip pendiente del revert (mismo mecanismo que approve).
                     c.execute(
-                        "UPDATE logs SET accion_tomada = ?, status = 'REVERTED', estado_mitigacion = NULL WHERE id = ?",
-                        (new_action, log_id),
+                        """
+                        UPDATE logs
+                        SET accion_tomada = ?,
+                            status = 'REVERTED',
+                            pending_command = ?,
+                            estado_mitigacion = NULL
+                        WHERE id = ?
+                        """,
+                        (new_action, revert_command, log_id),
                     )
                 except sqlite3.OperationalError as op_err:
                     if "no such column" in str(op_err).lower():

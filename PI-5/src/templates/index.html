@@ -669,9 +669,10 @@
                                             {% endif %}
                                         {% endif %}
 
+                                        {% set row_revert_command = row[13] if row|length > 13 else '' %}
                                         {% set is_blocked = (row[9] == 'APPROVED') or ('bloque' in action_lower) %}
                                         {% if is_blocked and '[revertido]' not in action_lower %}
-                                        <button type="button" onclick="showRevertModal(this)" data-log-id="{{ row[0] }}" data-ip="{{ row[4] }}" data-command="{{ row[10] | default('', true) | e }}" class="btn-revert">REVERTIR</button>
+                                        <button type="button" onclick="showRevertModal(this)" data-log-id="{{ row[0] }}" data-ip="{{ row[4] }}" data-command="{{ row[10] | default('', true) | e }}" data-revert-command="{{ row_revert_command | default('', true) | e }}" class="btn-revert">REVERTIR</button>
                                         {% endif %}
                                         {% if row[8] %}
                                         <span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: {{ row[8] }}</span>
@@ -751,8 +752,8 @@
         </div>
         <input type="hidden" id="revertLogId">
         <div style="margin-bottom: 16px;">
-            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Se va a ejecutar el siguiente comando en el sensor para revertir el bloqueo de la IP <strong id="revertIpLabel"></strong>:</div>
-            <pre id="revertCommandContent" class="code-block" style="white-space: pre-wrap; color: var(--accent-orange);"></pre>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 12px;">Se va a ejecutar el siguiente comando en el sensor para revertir el bloqueo de la IP <strong id="revertIpLabel"></strong> (puedes editarlo):</div>
+            <textarea id="revertCommandContent" class="code-block" style="width: 100%; min-height: 60px; resize: vertical; color: var(--accent-orange); background: var(--bg-darker); border: 1px solid var(--border-color); padding: 10px; font-family: monospace;"></textarea>
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 12px;">
             <button class="modal-btn btn-reject" onclick="closeRevertModal()">Cancelar</button>
@@ -1165,17 +1166,39 @@
         const logId = btn.dataset.logId;
         const ip = btn.dataset.ip;
         const pendingCmd = btn.dataset.command || '';
+        const savedRevertCmd = btn.dataset.revertCommand || '';
         document.getElementById('revertLogId').value = logId;
         document.getElementById('revertIpLabel').textContent = ip;
-        // Derive inverse command dynamically from the stored command
-        let revertCmd = '';
-        if (pendingCmd && pendingCmd.trim() !== '') {
-            revertCmd = pendingCmd.replace(/ -A /g, ' -D ').replace(/ --append /g, ' --delete ');
-            if (revertCmd === pendingCmd) revertCmd = `# REVERT: ${pendingCmd}`;
-        } else {
-            revertCmd = `sudo iptables -D INPUT -s ${ip} -j DROP`;
+        let revertCmd = savedRevertCmd.trim();
+        if (!revertCmd && pendingCmd && pendingCmd.trim() !== '') {
+            revertCmd = pendingCmd
+                .replace(/(^|\s)-A(?=\s|$)/g, '$1-D')
+                .replace(/(^|\s)-I(?=\s|$)/g, '$1-D')
+                .replace(/(^|\s)--append(?=\s|$)/g, '$1--delete')
+                .replace(/(^|\s)--insert(?=\s|$)/g, '$1--delete')
+                .replace(/\bufw\s+(deny|reject|allow)\b/g, 'ufw delete $1');
+            if (revertCmd === pendingCmd) {
+                const serviceRules = [
+                    [/\bsystemctl\s+stop\b/g, 'systemctl start'],
+                    [/\bsystemctl\s+start\b/g, 'systemctl stop'],
+                    [/\bsystemctl\s+disable\b/g, 'systemctl enable'],
+                    [/\bsystemctl\s+enable\b/g, 'systemctl disable'],
+                    [/\bservice\s+(\S+)\s+stop\b/g, 'service $1 start'],
+                    [/\bservice\s+(\S+)\s+start\b/g, 'service $1 stop']
+                ];
+                revertCmd = '';
+                for (const [pattern, replacement] of serviceRules) {
+                    const candidate = pendingCmd.replace(pattern, replacement);
+                    if (candidate !== pendingCmd) {
+                        revertCmd = candidate;
+                        break;
+                    }
+                }
+            }
         }
-        document.getElementById('revertCommandContent').textContent = revertCmd;
+        const textarea = document.getElementById('revertCommandContent');
+        textarea.placeholder = 'No se puede derivar automaticamente. Escribe aqui el comando exacto de reversión antes de enviar.';
+        textarea.value = revertCmd;
         document.getElementById('revertModal').classList.add('active');
     }
     function closeRevertModal() {
@@ -1184,8 +1207,19 @@
     
     async function submitRevert() {
         const logId = document.getElementById('revertLogId').value;
+        const revertCommand = document.getElementById('revertCommandContent').value.trim();
+        if (!revertCommand || revertCommand.startsWith('#')) {
+            showToast("El comando de reversiÃ³n no puede estar vacÃ­o ni ser un comentario.", "error");
+            return;
+        }
         try {
-            const res = await fetch(`/revert/${logId}`, { method: 'POST' });
+            const res = await fetch(`/revert/${logId}`, { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ command: revertCommand })
+            });
             const data = await res.json().catch(() => ({}));
             if(data.status === 'dispatching') {
                 closeRevertModal();
@@ -1489,7 +1523,7 @@
                     }
 
                     if (isBlocked && !actionLower.includes('[revertido]')) {
-                        actionHtml += `<button type="button" onclick="showRevertModal(this)" data-log-id="${escapeHtml(String(log.id))}" data-ip="${escapeHtml(log.source_ip)}" data-command="${escapeHtml(log.pending_command || '')}" class="btn-revert">REVERTIR</button>`;
+                        actionHtml += `<button type="button" onclick="showRevertModal(this)" data-log-id="${escapeHtml(String(log.id))}" data-ip="${escapeHtml(log.source_ip)}" data-command="${escapeHtml(log.pending_command || '')}" data-revert-command="${escapeHtml(log.revert_command || '')}" class="btn-revert">REVERTIR</button>`;
                     }
                     if (log.mitigation_status) {
                         actionHtml += `<span style="font-size: 0.7rem; color: var(--text-muted); font-style: italic;">FB: ${escapeHtml(log.mitigation_status)}</span>`;

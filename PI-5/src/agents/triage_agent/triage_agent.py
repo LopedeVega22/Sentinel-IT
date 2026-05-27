@@ -71,7 +71,7 @@ Every command you publish via the tools is signed with the coordinator's Ed25519
    - **Action**:
      - 1. **Mandatory**: Use `register_alert` to document the threat EXACTLY ONCE. CRITICAL: For the `raw_log` parameter, you MUST pass the COMPLETE, EXACT original log text you received as input. Never truncate, summarize, or leave it empty — the dashboard displays this verbatim.
      - 2. **Diagnosis (Optional)**: If you need to check the firewall or process list, use `execute_diagnostic_command`. Pass the diagnostic command directly — the Policy Engine decides whether it runs immediately (SAFE_READ) or escalates to HITL.
-     - 3. **Mitigation**: Use `request_mitigation_approval` to propose a destructive/mutating Bash command (like `sudo iptables -A...` or `kill -9...`). Explain your reasoning clearly in the rationale — the human sees it together with the auto-assigned risk level.
+     - 3. **Mitigation**: Use `request_mitigation_approval` to propose a destructive/mutating Bash command (like `sudo iptables -A...` or `kill -9...`). Explain your reasoning clearly in the rationale — the human sees it together with the auto-assigned risk level. When the mitigation is reversible, pass a concrete `revert_command` argument with the exact Bash command that undoes it. If a safe rollback cannot be known without prior state, leave `revert_command` empty rather than inventing one.
 
 ### CRITICAL EXECUTION RULES:
 - Once you call `request_mitigation_approval`, your action is placed in quarantine for a human admin to review. YOU MUST STOP tool execution immediately after.

@@ -20,11 +20,11 @@ Cada comando se clasifica con [`policy_engine.classify`](../PI-5/src/tools/polic
 | Nivel        | Significado                                                            | Flujo                                                          |
 | ------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `SAFE_READ`  | Lectura/diagnóstico sin efectos laterales (incluye `sudo cat`, etc.)   | **Ejecución directa**, sin intervención humana                 |
-| `LOW`        | Escritura acotada y reversible (`iptables -A` contra una IP, cierre de sesión PHP, verbos desconocidos) | **Auto-ejecución** + opción de revertir desde el dashboard |
+| `LOW`        | Escritura acotada (`iptables -A` contra una IP, cierre de sesión PHP, verbos desconocidos) | **Auto-ejecución** + opción de revertir desde el dashboard si hay rollback explícito o derivable |
 | `HIGH`       | Escritura amplia o sobre servicios críticos (`systemctl restart`, `kill`, `sed -i`, `find -delete`) | Revisión humana — banner amarillo en el modal     |
 | `CRITICAL`   | Acción destructiva o no reversible (`rm`, `dd`, `mkfs`, `shutdown`, `php -r`, `bash -c`...) | Revisión humana — banner rojo + **checkbox obligatorio** "entiendo el riesgo" |
 
-> **Diseño deliberado**: solo HIGH y CRITICAL interrumpen al operador. LOW se ejecuta inmediatamente porque sus efectos son acotados y existe el botón **REVERTIR** en el dashboard si hace falta deshacerlo. Esto evita que la interfaz pida confirmación constantemente para acciones de mitigación rutinarias (bloqueo de IPs, cierres de sesión).
+> **Diseño deliberado**: solo HIGH y CRITICAL interrumpen al operador. LOW se ejecuta inmediatamente porque sus efectos son acotados. El botón **REVERTIR** existe para acciones con `revert_command` explícito o inversa derivable; para comandos sin rollback seguro, el dashboard exige edición manual y no inventa comandos.
 
 ### Ejemplos por nivel
 
@@ -149,7 +149,7 @@ Si el parser falla (comillas mal cerradas, escapes raros) → `HIGH` por defecto
                        └────────────────────────────────────────┘
 ```
 
-Tras una auto-ejecución LOW, la fila queda con `status='APPROVED'` y `pending_command` rellenado, así que el dashboard ofrece automáticamente el botón **REVERTIR** sobre ella (mismo flujo que para una mitigación aprobada manualmente).
+Tras una auto-ejecución LOW, la fila queda con `status='APPROVED'` y `pending_command` rellenado, así que el dashboard ofrece automáticamente el botón **REVERTIR** sobre ella (mismo flujo que para una mitigación aprobada manualmente). Si el agente pasó un rollback real, también se guarda `revert_command`; si no, el dashboard solo deriva inversas conservadoras y deja el campo editable vacío cuando no puede hacerlo con seguridad.
 
 ### Re-validación tras edición humana
 
