@@ -27,8 +27,8 @@
     },
     {
       "ataque": "Cross-Site Scripting (XSS) detectado en la tabla sugerencias",
-      "comando": "sudo iptables -A INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -A INPUT -p tcp -s {ip} --dport 8080 -j DROP && bash -c 'source /home/lopex/backup_env.sh && restic restore latest --target /home/lopex/restauracion_web --include /tmp/all_databases.sql && mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql' && php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
-      "explicacion": "Bloquea la IP atacante y restaura la base de datos completa desde el backup para eliminar de forma segura los payloads XSS inyectados, finalizando con la revisión de sesiones comprometidas."
+      "comando": "sudo iptables -A INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -A INPUT -p tcp -s {ip} --dport 8080 -j DROP && bash -c 'source /home/lopex/backup_env.sh && sudo -E restic restore latest --target / --include /var/www/html/sentinelti.com && sudo chown -R www-data:www-data /var/www/html/sentinelti.com && restic restore latest --target /home/lopex/restauracion_web --include /tmp/all_databases.sql && mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql' && php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
+      "explicacion": "Bloquea la IP atacante y realiza una restauración integral desde el backup: primero restaura los archivos web para limpiar posibles alteraciones (defacement/webshells), y luego restaura la base de datos completa para eliminar payloads XSS persistentes, finalizando con la revisión de sesiones comprometidas."
     },
     {
       "ataque": "Compromiso Critico de Credenciales (Cambio de contraseña no autorizado tras Session Hijacking o SQLi)",
