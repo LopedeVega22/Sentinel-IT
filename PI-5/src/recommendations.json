@@ -27,8 +27,8 @@
     },
     {
       "ataque": "Cross-Site Scripting (XSS) detectado en la tabla sugerencias",
-      "comando": "mysql -u root -p SentinelIT -e \"DELETE FROM sugerencias WHERE comentario LIKE '%<script>%';\" && php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
-      "explicacion": "Borra especificamente las sugerencias que contengan etiquetas script maliciosas de la tabla de sugerencias en la BBDD SentinelIT para neutralizar el Stored XSS. Inmediatamente despues, lista las sesiones activas para que el analista evalue si debe revocar alguna sesion de administrador que haya podido ser robada (Session Hijacking)."
+      "comando": "sudo iptables -A INPUT -p tcp -s {ip} --dport 80 -j DROP && sudo iptables -A INPUT -p tcp -s {ip} --dport 8080 -j DROP && bash -c 'source /home/lopex/backup_env.sh && restic restore latest --target /home/lopex/restauracion_web --include /tmp/all_databases.sql && mysql -u root -p < /home/lopex/restauracion_web/tmp/all_databases.sql' && php /var/www/html/sentinelti.com/cerrar_sesion_admin.php --listar",
+      "explicacion": "Bloquea la IP atacante y restaura la base de datos completa desde el backup para eliminar de forma segura los payloads XSS inyectados, finalizando con la revisión de sesiones comprometidas."
     },
     {
       "ataque": "Compromiso Critico de Credenciales (Cambio de contraseña no autorizado tras Session Hijacking o SQLi)",
