@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS logs (
     accion_tomada       TEXT,                    -- 'Solo Registro' | concatenación con tags
     estado_mitigacion   TEXT,                    -- '[EXITO] ...' | '[FALLO] ...'
     status              TEXT DEFAULT 'LOGGED',   -- LOGGED | PENDING | APPROVED | REJECTED | REVERTED
-    pending_command     TEXT,                    -- comando bash propuesto / auto-ejecutado
+    pending_command     TEXT,                    -- comando bash propuesto / despachado
     rationale           TEXT,                    -- '[NIVEL] razón del agente o del motor'
     timestamp           DATETIME DEFAULT CURRENT_TIMESTAMP,
     revert_command      TEXT                     -- rollback explícito si se conoce
@@ -67,12 +67,12 @@ CREATE TABLE IF NOT EXISTS logs (
                                           ▼
                               ┌───────────┴──────────┐
                               │                      │
-                  LOW/SAFE_READ                  HIGH/CRITICAL
+                     SAFE_READ                   LOW/HIGH/CRITICAL
                               │                      │
                               ▼                      ▼
                        ┌──────────┐           ┌──────────┐
                        │ APPROVED │           │ PENDING  │
-                       │ (auto)   │           │          │
+                       │ (direct) │           │          │
                        └────┬─────┘           └────┬─────┘
                             │                     │ /api/mitigate/approve
                             │                     ▼
@@ -91,8 +91,8 @@ CREATE TABLE IF NOT EXISTS logs (
 Notas importantes:
 
 - `LOGGED` es el estado inicial tras `register_alert`. Si la amenaza no requería acción, queda así para siempre.
-- `PENDING` solo lo escribe `_quarantine_for_hitl()` (HIGH/CRITICAL). El dashboard pinta estas filas con badge amarillo/rojo y botón "Revisar Mitigación".
-- `APPROVED` lo escribe **tanto** `_auto_execute_low()` (sin pasar por humano) **como** `approve_mitigation()` (tras HITL). En ambos casos `pending_command` queda relleno, así el botón REVERTIR funciona indistintamente. Si existe un rollback fiable, también se rellena `revert_command`.
+- `PENDING` lo escribe `_quarantine_for_hitl()` para `LOW`, `HIGH` y `CRITICAL`. El dashboard pinta estas filas con badge por riesgo y botón "Revisar Mitigación".
+- `APPROVED` lo escribe `_auto_execute_low()` solo para `SAFE_READ` (sin pasar por humano) o `approve_mitigation()` tras HITL. En ambos casos `pending_command` queda relleno. Si existe un rollback fiable, también se rellena `revert_command`.
 - `REJECTED` es terminal: la mitigación no se ejecutó. La fila queda como histórico.
 - `REVERTED`: hubo APPROVED previo y el operador deshizo. Si la mitigación inversa falla, eso se refleja en `estado_mitigacion` pero el `status` no vuelve atrás.
 
@@ -107,7 +107,7 @@ SET accion_tomada = CASE
 END
 ```
 
-Esto permite rastrear la historia operativa de una fila (`Solo Registro` → `Auto-ejecutado [LOW]: iptables -A...` → `[EXITO] OK` → `[REVERTIDO]`) sin tablas adicionales. La auditoría formal vive en `audit_log`, no aquí — este texto es para el operador, no para forense.
+Esto permite rastrear la historia operativa de una fila (`Solo Registro` → `Requiere Revision: iptables -A...` → `[EJECUTADO]` → `[EXITO] OK` → `[REVERTIDO]`) sin tablas adicionales. La auditoría formal vive en `audit_log`, no aquí — este texto es para el operador, no para forense.
 
 ### 3.2.1 `pending_command` vs `revert_command`
 
@@ -159,13 +159,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
 | `event_type` | Cuándo se escribe | Quién lo escribe |
 |--------------|-------------------|------------------|
 | `DISPATCH` | Diagnóstico SAFE_READ publicado directamente | `iot_tools.execute_diagnostic_command` |
-| `AUTO_DISPATCH` | Mitigación LOW auto-ejecutada | `iot_tools._auto_execute_low` |
-| `QUARANTINE` | Mitigación HIGH/CRITICAL puesta en PENDING | `iot_tools._quarantine_for_hitl` |
+| `AUTO_DISPATCH` | Comando SAFE_READ despachado directamente | `iot_tools._auto_execute_low` |
+| `QUARANTINE` | Comando LOW/HIGH/CRITICAL puesto en PENDING | `iot_tools._quarantine_for_hitl` |
 | `APPROVE` | Humano aprobó una mitigación PENDING | `dashboard_soc.approve_mitigation` |
 | `REJECT` | Humano rechazó una mitigación | `dashboard_soc.approve_mitigation` |
 | `REJECT_CRITICAL_UNCONFIRMED` | Humano intentó aprobar CRITICAL sin marcar el checkbox | `dashboard_soc.approve_mitigation` |
 | `REVERT` | Humano deshizo una mitigación APPROVED | `dashboard_soc.revert_action` |
-| `ANOMALY` | Round-trip falló: PI-4 reporta ejecución de un comando que el coordinador no emitió | `main_coordinator.process_event` |
+| `ANOMALY` | Evento legacy de la antigua verificación reactiva; no se emite en el flujo Ed25519 actual | N/A |
 
 Cualquier dispatch o decisión queda registrada. Si una fila de `audit_log` no tiene contrapartida razonable en el flujo, ha habido un bug — el log es la fuente de verdad.
 
@@ -201,7 +201,7 @@ O desde dentro del contenedor:
 
 ```bash
 docker exec -it soc-coordinator-pi5 sqlite3 /app/data/soc_data.db \
-    "SELECT * FROM audit_log WHERE event_type='ANOMALY';"
+    "SELECT * FROM audit_log WHERE event_type='REJECT_CRITICAL_UNCONFIRMED';"
 ```
 
 ## 5. Política de retención
@@ -217,7 +217,7 @@ WHERE accion_tomada = 'Solo Registro'
 Reglas:
 
 - Solo se purgan filas que se quedaron en estado terminal pasivo (`accion_tomada = 'Solo Registro'` → nunca generaron mitigación).
-- Filas con cualquier mitigación (`Auto-ejecutado [...]`, `Requiere Revision`, `[EJECUTADO]`, `[REVERTIDO]`...) **nunca** se purgan.
+- Filas con cualquier mitigación (`Requiere Revision`, `[EJECUTADO]`, `[REVERTIDO]`...) **nunca** se purgan.
 - `audit_log` **no se purga jamás** — los triggers anti-DELETE lo impiden.
 - El umbral (30 días por defecto) se controla en `config.yml → retention.max_days`.
 
@@ -230,8 +230,8 @@ Esto evita que la DB crezca indefinidamente con telemetría benigna mientras con
 | `main_coordinator.py` | Solo a través de los tools | El coordinador no hace SQL directo, lo delega en `db_tools` / `iot_tools` / `policy_engine` |
 | `db_tools.register_alert` | INSERT en `logs` con retry x5 ante `database is locked` | Lleva `rotate_old_logs` integrado si está habilitado |
 | `db_tools.update_alert_status` | UPDATE en la fila más reciente del device (`ORDER BY timestamp DESC LIMIT 1`) | Concatenación, nunca sobrescribe |
-| `iot_tools._auto_execute_low` | UPDATE con retry x5 (`status='APPROVED'`, `pending_command`, `revert_command`, `rationale`) | También llama `policy_engine.audit(AUTO_DISPATCH)` |
-| `iot_tools._quarantine_for_hitl` | UPDATE con retry x5 (`status='PENDING'`, `pending_command`, `revert_command`, `rationale`) | También llama `policy_engine.audit(QUARANTINE)` |
+| `iot_tools._auto_execute_low` | UPDATE con retry x5 (`status='APPROVED'`, `pending_command`, `revert_command`, `rationale`) para SAFE_READ | También llama `policy_engine.audit(AUTO_DISPATCH)` |
+| `iot_tools._quarantine_for_hitl` | UPDATE con retry x5 (`status='PENDING'`, `pending_command`, `revert_command`, `rationale`) para LOW/HIGH/CRITICAL | También llama `policy_engine.audit(QUARANTINE)` |
 | `policy_engine.audit` | INSERT en `audit_log` | Único punto de escritura del audit log |
 | `dashboard_soc._get_connection` | SELECT (read-only) + UPDATE en HITL/revert | Siempre WAL, timeout 10 s |
 

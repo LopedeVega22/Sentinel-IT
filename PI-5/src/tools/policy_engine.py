@@ -13,8 +13,7 @@ Filosofia:
       humano. Esto es deliberado para no entorpecer al agente IA.
 
 Capas adicionales:
-    * record_dispatch + verify_feedback  -> deteccion de comandos que llegan
-      por feedback sin haberse emitido nunca desde PI-5 (round-trip).
+    * Firma Ed25519 en el envio y verificacion preventiva en PI-4.
     * audit(...)  -> escritura inmutable en la tabla `audit_log`.
 """
 
@@ -96,7 +95,7 @@ _READ_VERBS = {
     "hostname", "dig", "host", "nslookup", "ping", "traceroute", "tracepath",
     "awk", "cut", "sort", "uniq", "tr", "env", "printenv", "true", "echo",
     "date", "lsblk", "lsof", "lspci", "lsusb", "iostat", "vmstat", "mpstat",
-    "tcpdump",  # solo lectura aunque sea sudo
+    "tcpdump", "find",  # solo lectura aunque sea sudo, salvo flags mutantes
 }
 
 _BOUNDED_WRITE_VERBS = {
@@ -148,6 +147,29 @@ def classify(cmd: str) -> Classification:
 
     reasons: list = []
 
+    pipe_segments = _split_unquoted_pipe(raw)
+    if len(pipe_segments) > 1:
+        segment_classes = [classify(segment) for segment in pipe_segments]
+        if all(seg.level == RiskLevel.SAFE_READ for seg in segment_classes):
+            joined_verbs = " | ".join(seg.parsed_verb for seg in segment_classes)
+            return Classification(
+                level=RiskLevel.SAFE_READ,
+                parsed_verb=joined_verbs,
+                reasons=[
+                    "pipeline compuesto solo por comandos de lectura",
+                    *[reason for seg in segment_classes for reason in seg.reasons],
+                ],
+            )
+        highest = max(seg.level for seg in segment_classes)
+        return Classification(
+            level=max(RiskLevel.HIGH, highest),
+            parsed_verb=segment_classes[0].parsed_verb if segment_classes else "",
+            reasons=[
+                "pipeline contiene tramo no clasificado como lectura pura",
+                *[reason for seg in segment_classes for reason in seg.reasons],
+            ],
+        )
+
     # --- 1) Tokenizacion con shlex (modo POSIX) ---
     try:
         tokens = shlex.split(raw, posix=True)
@@ -191,8 +213,8 @@ def classify(cmd: str) -> Classification:
         level = RiskLevel.CRITICAL
         reasons.append(f"verbo destructivo: {verb}")
     elif verb in _BROAD_WRITE_VERBS:
-        level = RiskLevel.HIGH
-        reasons.append(f"verbo de escritura amplia: {verb}")
+        level, sub_reasons = _classify_broad_write(verb, args)
+        reasons.extend(sub_reasons)
     elif verb in _BOUNDED_WRITE_VERBS:
         level, sub_reasons = _classify_bounded_write(verb, args)
         reasons.extend(sub_reasons)
@@ -305,14 +327,23 @@ def _classify_bounded_write(verb: str, args: list) -> tuple[RiskLevel, list]:
     return RiskLevel.HIGH, reasons
 
 
+def _classify_broad_write(verb: str, args: list) -> tuple[RiskLevel, list]:
+    """Subcomandos de solo estado dentro de herramientas normalmente mutantes."""
+    if verb == "systemctl" and args:
+        read_subcommands = {"status", "show", "is-active", "is-enabled", "list-units"}
+        if args[0] in read_subcommands:
+            return RiskLevel.SAFE_READ, [f"{verb} {args[0]} es consulta de estado"]
+    if verb == "service" and len(args) >= 2 and args[1] == "status":
+        return RiskLevel.SAFE_READ, ["service status es consulta de estado"]
+    return RiskLevel.HIGH, [f"verbo de escritura amplia: {verb}"]
+
+
 def _detect_shell_metachars(raw: str) -> list:
     """
     Devuelve la lista de metacaracteres relevantes encontrados.
 
-    Las pipes solas (`|`) entre dos lecturas son tan comunes (`ps aux | grep`)
-    que no las cuento como senal de escalada salvo que aparezcan junto a otro
-    metacaracter. La heuristica es conservadora: ante la duda, escala y deja
-    decidir al humano.
+    Las pipes se clasifican antes por tramos. Aqui quedan metacaracteres que
+    introducen control de flujo, sustitucion o escritura de salida.
     """
     hits = []
     # Quitar contenido entre comillas simples/dobles para no leer metacaracteres
@@ -322,13 +353,58 @@ def _detect_shell_metachars(raw: str) -> list:
     for token in (";", "&&", "||", "`", "$("):
         if token in sanitized:
             hits.append(token)
-    # `>` y `>>` solo si redirigen fuera de /tmp o /var/log/sentinel
+    # `>` y `>>` escriben estado aunque el verbo principal sea de lectura.
     redirect = re.search(r">>?\s*(\S+)", sanitized)
     if redirect:
         target = redirect.group(1)
-        if not (target.startswith("/tmp/") or target.startswith("/var/log/")):
-            hits.append(f"> {target}")
+        hits.append(f"> {target}")
     return hits
+
+
+def _split_unquoted_pipe(raw: str) -> list:
+    """Split on shell pipes outside quotes; keep logical OR for metachar handling."""
+    if "||" in raw:
+        return [raw]
+
+    segments = []
+    current = []
+    quote = None
+    escaped = False
+
+    for ch in raw:
+        if escaped:
+            current.append(ch)
+            escaped = False
+            continue
+        if ch == "\\":
+            current.append(ch)
+            escaped = True
+            continue
+        if ch in ("'", '"'):
+            current.append(ch)
+            if quote is None:
+                quote = ch
+            elif quote == ch:
+                quote = None
+            continue
+        if ch == "|" and quote is None:
+            segment = "".join(current).strip()
+            if not segment:
+                return [raw]
+            segments.append(segment)
+            current = []
+            continue
+        current.append(ch)
+
+    if quote is not None:
+        return [raw]
+    if segments:
+        final = "".join(current).strip()
+        if not final:
+            return [raw]
+        segments.append(final)
+        return segments
+    return [raw]
 
 
 def _scan_destructive_anywhere(raw: str, primary: str) -> list:
@@ -381,8 +457,8 @@ def decide(cmd: str) -> Decision:
 # ---------------------------------------------------------------------------
 # Audit log (append-only) — inmutabilidad asegurada por triggers en BD
 # ---------------------------------------------------------------------------
-# Nota: la cache de despachos (record_dispatch / match_feedback / verify_feedback)
-# se elimino al introducir firma Ed25519 en los comandos enviados a PI-4. Si un
+# Nota: la cache reactiva de despachos se elimino al introducir firma Ed25519
+# en los comandos enviados a PI-4. Si un
 # sensor reporta un comando es porque la firma fue valida en su extremo, de
 # modo que el round-trip a posteriori dejo de ser necesario.
 def audit(

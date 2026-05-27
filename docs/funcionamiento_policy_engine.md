@@ -1,6 +1,6 @@
 # Funcionamiento del Policy Engine — Sentinel-IT
 
-Documento de referencia técnica sobre cómo el coordinador (PI-5) clasifica y autoriza los comandos que viajan al sensor (PI-4). Refleja el estado a partir del 2026-05-16.
+Documento de referencia técnica sobre cómo el coordinador (PI-5) clasifica y autoriza los comandos que viajan al sensor (PI-4). Refleja el estado a partir del 2026-05-27.
 
 > Sustituye a la sección 1 del documento [futuras_mejoras.md](futuras_mejoras.md), que queda marcada como **RESUELTA** y solo deja constancia histórica de la motivación.
 
@@ -11,7 +11,7 @@ La versión anterior tenía dos defectos en la validación de comandos:
 1. **Blacklist por substring** en [iot_tools.py:49](../PI-5/src/tools/iot_tools.py#L49) (`'rm '`, `'kill '`, `'chmod'`...). Era eludible (`php -r 'system("rm -rf /tmp")'` no contiene `rm ` exacto) y a la vez demasiado restrictiva: bloqueaba lecturas inocuas como `sudo cat /var/log/auth.log`.
 2. **No había trazabilidad ordenada** de quién había propuesto qué, quién lo había aprobado y qué había pasado al final.
 
-El Policy Engine sustituye la blacklist por **clasificación de riesgo en cuatro niveles** y añade dos capas de defensa adicional: verificación de round-trip y log de auditoría inmutable.
+El Policy Engine sustituye la blacklist por **clasificación de riesgo en cuatro niveles** y añade dos capas de defensa adicional: firma Ed25519 preventiva en PI-4 y log de auditoría inmutable.
 
 ## Niveles de riesgo
 
@@ -20,11 +20,11 @@ Cada comando se clasifica con [`policy_engine.classify`](../PI-5/src/tools/polic
 | Nivel        | Significado                                                            | Flujo                                                          |
 | ------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `SAFE_READ`  | Lectura/diagnóstico sin efectos laterales (incluye `sudo cat`, etc.)   | **Ejecución directa**, sin intervención humana                 |
-| `LOW`        | Escritura acotada (`iptables -A` contra una IP, cierre de sesión PHP, verbos desconocidos) | **Auto-ejecución** + opción de revertir desde el dashboard si hay rollback explícito o derivable |
+| `LOW`        | Escritura acotada (`iptables -A` contra una IP, cierre de sesión PHP, verbos desconocidos) | Revisión humana — banner informativo en el modal |
 | `HIGH`       | Escritura amplia o sobre servicios críticos (`systemctl restart`, `kill`, `sed -i`, `find -delete`) | Revisión humana — banner amarillo en el modal     |
 | `CRITICAL`   | Acción destructiva o no reversible (`rm`, `dd`, `mkfs`, `shutdown`, `php -r`, `bash -c`...) | Revisión humana — banner rojo + **checkbox obligatorio** "entiendo el riesgo" |
 
-> **Diseño deliberado**: solo HIGH y CRITICAL interrumpen al operador. LOW se ejecuta inmediatamente porque sus efectos son acotados. El botón **REVERTIR** existe para acciones con `revert_command` explícito o inversa derivable; para comandos sin rollback seguro, el dashboard exige edición manual y no inventa comandos.
+> **Diseño deliberado**: solo `SAFE_READ` se ejecuta sin intervención. Cualquier comando que pueda modificar estado (`LOW`, `HIGH` o `CRITICAL`) queda en HITL para aprobación humana. El botón **REVERTIR** existe para acciones con `revert_command` explícito o inversa derivable; para comandos sin rollback seguro, el dashboard exige edición manual y no inventa comandos.
 
 ### Ejemplos por nivel
 
@@ -33,7 +33,10 @@ SAFE_READ:
     cat /var/log/auth.log
     sudo cat /var/log/auth.log               # sudo de un verbo de lectura sigue siendo SAFE_READ
     sudo journalctl -u sshd
+    sudo systemctl status apache2
+    sudo service apache2 status
     sudo iptables -L INPUT
+    find /var/log -type f -name '*.log'
     ps aux | grep sshd                       # pipe entre dos lecturas no escala
 
 LOW:
@@ -46,6 +49,7 @@ HIGH:
     kill 1234
     sed -i 's/old/new/' /etc/config.conf
     find / -name '*.log' -delete
+    cat /tmp/payload | bash                  # pipeline con tramo no-lectura
 
 CRITICAL:
     rm -rf /tmp
@@ -68,14 +72,15 @@ El clasificador parte del verbo principal y aplica reglas aditivas:
    - `-F` con cadena específica (`INPUT/FORWARD/OUTPUT`) → `HIGH`.
    - `-F` sin cadena → `CRITICAL`.
 4. **Verbo destructivo** (`rm`, `dd`, `mkfs`, `shutdown`, `reboot`, `userdel`...) → `CRITICAL`.
-5. **Verbo de escritura amplia** (`systemctl`, `kill`, `mount`, `chmod`, `chown`...) → `HIGH`.
+5. **Verbo de escritura amplia** (`systemctl`, `kill`, `mount`, `chmod`, `chown`...) → `HIGH`, salvo subcomandos de estado (`systemctl status/show/is-active/is-enabled/list-units`, `service <name> status`) que son `SAFE_READ`.
 6. **Intérprete** (`bash`, `php`, `python`, `perl`, `eval`...) → `LOW` de base.
 7. **Verbo desconocido** → `LOW`. **Nunca DENY automático.** Esto es deliberado.
 
 Modificadores que suben el nivel:
 
 - **Intérprete con flag de ejecución en línea** (`bash -c`, `php -r`, `python -c`...) → +2 niveles. Esto cierra el agujero `php -r 'system("rm -rf /tmp")'`.
-- **Metacaracteres de shell fuera de comillas** (`;`, `&&`, `||`, backticks, `$(...)`, redirección `>` a fuera de `/tmp` y `/var/log`) → +1.
+- **Pipelines** (`|`) se clasifican por tramos. Solo son `SAFE_READ` si todos los tramos son lectura pura (`ps aux | grep sshd`). Si cualquier tramo no es lectura (`cat payload | bash`), el conjunto sube al menos a `HIGH`.
+- **Metacaracteres de shell fuera de comillas** (`;`, `&&`, `||`, backticks, `$(...)`, redirección `>`/`>>`) → +1.
 - **Wildcards en paths sensibles** (`/etc/*`, `/boot/*`, `/sys/*`, `/proc/*`, `/dev/sd*`) → +1.
 - **`find -delete` o `find -exec`** → al menos `HIGH`.
 - **`sed -i`** → al menos `HIGH` (mutación in-place).
@@ -100,11 +105,11 @@ Si el parser falla (comillas mal cerradas, escapes raros) → `HIGH` por defecto
         │ otro nivel →    │                                  │
         │   re-encauza a  │              ┌───────────────────┴──────────────────┐
         │ request_…       │              │                                      │
-        └────────┬────────┘              ▼ SAFE_READ / LOW                      ▼ HIGH / CRITICAL
+        └────────┬────────┘              ▼ SAFE_READ                         ▼ LOW / HIGH / CRITICAL
                  │                ┌─────────────────────┐              ┌─────────────────────┐
                  │                │ Auto-ejecución      │              │ Cuarentena PENDING  │
                  │                │  - publish MQTT     │              │  - status='PENDING' │
-                 │                │  - record_dispatch  │              │  - rationale [NIVEL]│
+                 │                │  - firma Ed25519    │              │  - rationale [NIVEL]│
                  │                │  - status='APPROVED'│              │  - audit(QUARANTINE)│
                  │                │  - audit(AUTO_DISP) │              └──────────┬──────────┘
                  │                └──────────┬──────────┘                         │
@@ -139,17 +144,13 @@ Si el parser falla (comillas mal cerradas, escapes raros) → `HIGH` por defecto
                                               ▼
                        ┌────────────────────────────────────────┐
                        │ main_coordinator.process_event         │
-                       │  - policy_engine.verify_feedback(cmd)  │
-                       │     · MATCH  → feedback_queue          │
-                       │     · ANOMALY → register_alert         │
-                       │                  (INTRUSION-COMMAND-   │
-                       │                   INJECTION, Critica)  │
-                       │                + audit(ANOMALY)        │
-                       │                + NO encolar feedback   │
+                       │  - normaliza feedback PI-4             │
+                       │  - rejected_signature queda registrado │
+                       │  - feedback_queue                      │
                        └────────────────────────────────────────┘
 ```
 
-Tras una auto-ejecución LOW, la fila queda con `status='APPROVED'` y `pending_command` rellenado, así que el dashboard ofrece automáticamente el botón **REVERTIR** sobre ella (mismo flujo que para una mitigación aprobada manualmente). Si el agente pasó un rollback real, también se guarda `revert_command`; si no, el dashboard solo deriva inversas conservadoras y deja el campo editable vacío cuando no puede hacerlo con seguridad.
+Tras una auto-ejecución `SAFE_READ`, la fila queda con `status='APPROVED'` y `pending_command` rellenado, así que el dashboard puede mostrar el último comando enviado. Las acciones `LOW`, `HIGH` y `CRITICAL` quedan con `status='PENDING'` hasta que el operador las aprueba o rechaza. Si el agente pasó un rollback real, también se guarda `revert_command`; si no, el dashboard solo deriva inversas conservadoras y deja el campo editable vacío cuando no puede hacerlo con seguridad.
 
 ### Re-validación tras edición humana
 
@@ -159,24 +160,11 @@ Es una doble red:
 - Front: bloquea el click si el banner ya marca CRITICAL y el checkbox no está marcado.
 - Back: re-valida porque un cliente malicioso podría saltarse la validación del front.
 
-## Verificación round-trip
+## Firma Ed25519
 
-`policy_engine.record_dispatch(cmd, device, log_id)` guarda en memoria cada comando publicado a MQTT (TTL 5 minutos). Cuando llega un feedback en `seguridad/<device>/respuesta`, [main_coordinator.process_event](../PI-5/src/main_coordinator.py#L204) llama a `policy_engine.verify_feedback(executed_cmd, device)`:
+Cada comando publicado por PI-5 se firma con Ed25519 antes de enviarse a `seguridad/<device>/comando`. PI-4 solo tiene la clave pública, por lo que puede verificar origen, ventana temporal y nonce anti-replay antes de ejecutar. Si la firma falla, PI-4 rechaza la orden y publica un feedback `rejected_signature`.
 
-- **MATCH** → el feedback se encola normalmente al `feedback_agent`.
-- **ANOMALY** → significa que PI-4 reporta haber ejecutado un comando que el coordinador nunca emitió. Posibles causas:
-  - Credenciales (cert/key) filtradas y un atacante publicó directo a `seguridad/<device>/comando`.
-  - Suplantación del cliente Pi5-dani.
-  - PI-4 está manipulada y miente sobre lo ejecutado.
-
-  En cualquier caso, el coordinador:
-  1. Crea una alerta `INTRUSION-COMMAND-INJECTION` con gravedad `Critica`.
-  2. Escribe en `audit_log` un evento `ANOMALY`.
-  3. **No** encola el feedback al `feedback_agent` (evita contaminar el estado de las mitigaciones legítimas).
-
-### Limitación honesta
-
-Sin firma criptográfica (HMAC + nonce/timestamp), la verificación es **a posteriori**. Detecta la anomalía solo cuando PI-4 *reporta* el comando ejecutado. La defensa real preventiva sigue siendo la Policy de AWS IoT: solo tres `client_id` autorizados pueden conectar (`Pi5-dani`, `Pi4-felix`, `Dashboard-SOC-Pi5`). El round-trip es una capa adicional de **defense in depth**, no una solución completa.
+La antigua caché reactiva de despachos ya no existe en el código: la garantía pasó de detectar a posteriori a bloquear antes de ejecutar.
 
 ## Audit log inmutable
 
@@ -186,7 +174,7 @@ Tabla [`audit_log`](../PI-5/src/database.py) creada en `database.py`. Columnas:
 | ----------------- | --------------------------------------------------------------- |
 | `id`              | autoincrement                                                   |
 | `ts`              | timestamp UTC automático                                        |
-| `event_type`      | `DISPATCH` / `AUTO_DISPATCH` / `QUARANTINE` / `APPROVE` / `REJECT` / `REJECT_CRITICAL_UNCONFIRMED` / `REVERT` / `ANOMALY` |
+| `event_type`      | `DISPATCH` / `AUTO_DISPATCH` / `QUARANTINE` / `APPROVE` / `REJECT` / `REJECT_CRITICAL_UNCONFIRMED` / `REVERT` |
 | `device`          | dispositivo destino                                             |
 | `command`         | texto literal del comando                                       |
 | `classification`  | `SAFE_READ` / `LOW` / `HIGH` / `CRITICAL`                       |
@@ -212,7 +200,7 @@ Cualquier intento de `UPDATE` o `DELETE` aborta con `IntegrityError`. Ni siquier
 | Blacklist por substring eludible                               | Clasificación con parser shlex + escalado   | OWASP Top 10 — A03:2021 Injection               |
 | Comandos diagnósticos pasaban por blacklist                    | Nivel `SAFE_READ` con `sudo cat` permitido  | NIST SP 800-53 — AC-3 Access Enforcement        |
 | Comandos destructivos no exigían confirmación explícita        | Re-validación + `confirm_critical=true`     | NIST SP 800-53 — AC-3, AC-6 Least Privilege     |
-| Coordinador no detectaba comandos ejecutados que no emitió     | `verify_feedback` + ANOMALY                 | NIST SP 800-53 — SI-4 Information Monitoring    |
+| PI-4 podía recibir órdenes no firmadas si se filtraban credenciales MQTT | Firma Ed25519 + nonce + expiración en PI-4 | NIST SP 800-53 — SI-4 Information Monitoring    |
 | Sin trazabilidad ordenada de decisiones                        | `audit_log` append-only                     | NIST SP 800-53 — AU-2; ISO 27001 A.12.4 Logging |
 
 ## Cómo extender el motor
@@ -220,7 +208,7 @@ Cualquier intento de `UPDATE` o `DELETE` aborta con `IntegrityError`. Ni siquier
 - **Añadir un verbo de lectura nuevo** (ej. `dmesg`): añadirlo a `_READ_VERBS` en [policy_engine.py](../PI-5/src/tools/policy_engine.py).
 - **Añadir un verbo destructivo nuevo**: añadirlo a `_DESTRUCTIVE_VERBS`.
 - **Marcar un path adicional como sensible**: añadirlo a `_SENSITIVE_WILDCARD_PATHS`.
-- **Cambiar el TTL del cache de round-trip**: editar `_DISPATCH_TTL_SECONDS` (por defecto 300 s).
+- **Cambiar la ventana de validez de comandos firmados**: editar `signing.ttl_seconds` en `config.yml`.
 
 Los tests unitarios viven en [PI-5/tests/test_policy_engine.py](../PI-5/tests/test_policy_engine.py) y cubren los cuatro niveles, las señales que escalan y la inmutabilidad del `audit_log`. Ejecutar con:
 
@@ -233,12 +221,12 @@ python -m unittest tests.test_policy_engine -v
 
 | Archivo                                                                          | Rol                                                                   |
 | -------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| [PI-5/src/tools/policy_engine.py](../PI-5/src/tools/policy_engine.py)            | Motor (clasificación, decisión, cache round-trip, audit)              |
+| [PI-5/src/tools/policy_engine.py](../PI-5/src/tools/policy_engine.py)            | Motor (clasificación, decisión y audit)              |
 | [PI-5/src/tools/iot_tools.py](../PI-5/src/tools/iot_tools.py)                    | `execute_diagnostic_command` y `request_mitigation_approval`: invocan el motor |
 | [PI-5/src/dashboard_soc.py](../PI-5/src/dashboard_soc.py)                        | `approve_mitigation` re-clasifica el comando editado; `revert_action` audita |
-| [PI-5/src/main_coordinator.py](../PI-5/src/main_coordinator.py)                  | `process_event` hace round-trip verification antes de encolar feedbacks |
+| [PI-5/src/main_coordinator.py](../PI-5/src/main_coordinator.py)                  | `process_event` normaliza feedbacks y los enruta al agente correcto |
 | [PI-5/src/agents/triage_agent/triage_agent.py](../PI-5/src/agents/triage_agent/triage_agent.py)       | Prompt actualizado: el agente sabe que el motor clasifica y reencauza |
-| [PI-5/src/agents/feedback_agent/feedback_agent.py](../PI-5/src/agents/feedback_agent/feedback_agent.py) | Prompt actualizado: feedbacks que llegan ya pasaron round-trip       |
+| [PI-5/src/agents/feedback_agent/feedback_agent.py](../PI-5/src/agents/feedback_agent/feedback_agent.py) | Prompt actualizado: registra feedbacks normalizados       |
 | [PI-5/src/database.py](../PI-5/src/database.py)                                  | Crea la tabla `audit_log` y sus triggers anti-modificación            |
 | [PI-5/src/templates/index.html](../PI-5/src/templates/index.html)                | Modal HITL con banner de color + checkbox CRITICAL                    |
 | [PI-5/tests/test_policy_engine.py](../PI-5/tests/test_policy_engine.py)          | 30 tests unitarios                                                    |

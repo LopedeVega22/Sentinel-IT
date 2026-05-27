@@ -55,29 +55,28 @@ To prevent that, `dashboard_soc.py` calls `mqtt_client.publish(topic, payload, w
 - On success: writes `status='APPROVED'` (or `'REVERTED'`) and returns `200`.
 - On failure: returns `502 Bad Gateway` with the publish error, **without** touching the database. The row stays `PENDING` so the operator can retry once connectivity is restored.
 
-The agent-driven publishes inside `iot_tools.py` (diagnostic reads, LOW auto-execution) keep the default fire-and-forget mode to avoid blocking the ADK runner thread. See [`funcionamiento_mqtt.md`](funcionamiento_mqtt.md#modos-de-publicación-asíncrono-vs-síncrono-puback) for the full comparison.
+The agent-driven publishes inside `iot_tools.py` are limited to diagnostic reads classified as `SAFE_READ`; they keep the default fire-and-forget mode to avoid blocking the ADK runner thread. Any command classified as `LOW`, `HIGH`, or `CRITICAL` waits for a human decision in HITL. See [`funcionamiento_mqtt.md`](funcionamiento_mqtt.md#modos-de-publicación-asíncrono-vs-síncrono-puback) for the full comparison.
 
 ### Zombie connection detection
 
 Before each HITL publish, `get_mqtt_client()` calls `AWSMqttClient.is_alive()` to detect "zombie" connections — where the Python object exists but the underlying TCP/TLS socket is dead. If detected, the zombie is disconnected and a fresh connection is established with exponential backoff. This prevents the 502 errors that occur when the dashboard's MQTT connection dies silently after a transient network failure. See [MQTT_Resilience.md](MQTT_Resilience.md) for the full architecture.
 
-## End-to-end Round-trip Verification
+## End-to-end Execution Feedback
 
-PUBACK from AWS proves the broker accepted the message, **not** that PI-4 executed it. The HITL flow closes that loop using the sensor's own `seguridad/<device>/respuesta` channel and a per-row correlation key.
+PUBACK from AWS proves the broker accepted the message, **not** that PI-4 executed it. The HITL flow closes that operator-facing loop using the sensor's own `seguridad/<device>/respuesta` channel and the `estado_mitigacion` field.
 
 ### Flow on approval
 
 1. Dashboard POST `/api/mitigate/approve` (or `/revert/<id>`).
-2. Backend re-classifies the edited command, publishes with `wait_for_ack=True`, records the dispatch in `policy_engine._dispatch_cache` (cmd + device + `log_id` + timestamp), and UPDATEs the row to `status='APPROVED'`, `estado_mitigacion=NULL`.
+2. Backend re-classifies the edited command, signs the payload, publishes with `wait_for_ack=True`, and UPDATEs the row to `status='APPROVED'`, `estado_mitigacion=NULL`.
 3. Response: `200 {status: 'dispatching', log_id}` (not `'success'`).
 4. Frontend opens a 30-second poll loop on `/api/mitigate/status/<log_id>`, showing a blue "Esperando confirmación de PI-4..." toast.
 
 ### Flow on PI-4 response
 
 5. PI-4 executes the command and publishes the result.
-6. `main_coordinator.process_event` receives `seguridad/+/respuesta` and calls `policy_engine.match_feedback(executed_cmd, device)`. The dispatch cache is normalized for whitespace, so `"cmd "` (trailing space from PI-4 echo) still matches `"cmd"`.
-7. If a match exists, the coordinator calls `db_tools.mark_mitigation_result(log_id, 'EXITO'|'FALLO', output)` — synchronous SQLite write, immediate, no LLM. The row's `estado_mitigacion` is populated within ~10 ms of MQTT receipt.
-8. The same `/respuesta` message is still enqueued for the feedback_agent in its queue so the LLM gets the analytical context.
+6. `main_coordinator.process_event` receives `seguridad/+/respuesta`, normalizes the payload to the canonical five-field shape, and enqueues it for the feedback agent.
+7. The feedback agent calls `update_alert_status`, which writes `EXITO`, `FALLO`, or `RECHAZADO_FIRMA` into the latest row for that device.
 
 ### Flow on the dashboard
 
@@ -86,13 +85,8 @@ PUBACK from AWS proves the broker accepted the message, **not** that PI-4 execut
 
 ### Anomaly path (zero-trust)
 
-If `match_feedback` returns `None` — meaning PI-4 reported executing something the coordinator never dispatched — the message is treated as a potential **command injection** event:
-- A `Critica` alert with vector `INTRUSION-COMMAND-INJECTION` is inserted in `logs`.
-- An `ANOMALY` event is appended to `audit_log`.
-- The message is **not** enqueued for the feedback agent (it isn't a legitimate response, so analyzing it would contaminate the agent's context).
+If PI-4 receives an unsigned, expired, replayed, or forged command, it refuses execution before spawning a shell and emits `status="rejected_signature"` on the response topic. The feedback agent records that rejection; it does not reissue commands to the same sensor.
 
-This guards against scenarios where PI-4 credentials are leaked and an attacker triggers an execution outside the SOC's control.
+### Why there is no dispatch cache now
 
-### Why correlation is by command string, not by UUID
-
-Modifying PI-4 to echo back a `command_id` would be the textbook solution but requires changes in the sensor codebase (maintained by a different teammate). Instead, we correlate by `(device, normalized_command)` against a TTL cache (5 min) of recent dispatches. The trade-off: if the same command is dispatched twice within the TTL, we match against the most recent one. In practice the HITL flow makes duplicate dispatches rare; for safety the cache stores the timestamp so we always pick the latest match.
+The old `record_dispatch` / `match_feedback` cache was reactive: it detected anomalies after a response came back. Ed25519 signing moved that guarantee to PI-4 before execution, which is the stronger boundary for this system.

@@ -131,10 +131,9 @@ def request_mitigation_approval(
     """
     Propone un comando de mitigacion. El Policy Engine decide el flujo segun el riesgo:
 
-      * SAFE_READ / LOW  -> auto-ejecucion (publica directo). El comando queda
-        registrado con status='APPROVED' y pending_command relleno, asi el
-        dashboard ofrece el boton REVERTIR si el operador necesita deshacerlo.
-      * HIGH / CRITICAL  -> queda en cuarentena (status='PENDING') con el
+      * SAFE_READ -> auto-ejecucion (publica directo). El comando queda
+        registrado con status='APPROVED' y pending_command relleno.
+      * LOW / HIGH / CRITICAL -> queda en cuarentena (status='PENDING') con el
         rationale prefijado por nivel para que el dashboard muestre el banner
         y, en CRITICAL, exija checkbox de confirmacion.
 
@@ -155,7 +154,7 @@ def request_mitigation_approval(
             revert_command = derive_revert_command(mitigation_command)
 
         cls = policy_engine.classify(mitigation_command)
-        auto_execute = cls.level <= policy_engine.RiskLevel.LOW
+        auto_execute = cls.level == policy_engine.RiskLevel.SAFE_READ
 
         # Si la razon viene ya prefijada por execute_diagnostic_command no
         # duplicamos el tag.
@@ -175,7 +174,7 @@ def request_mitigation_approval(
 
 def _auto_execute_low(device: str, command: str, revert_command: str, decorated_rationale: str,
                       cls: 'policy_engine.Classification') -> dict:
-    """Publica un comando LOW/SAFE_READ directo y deja la fila lista para REVERTIR."""
+    """Publica un comando SAFE_READ directo y deja trazabilidad en la fila."""
     if _iot_client is None:
         logger.error("[ERROR] Cliente IoT no inicializado.")
         return {"status": "error", "message": "IoT Client not initialized"}

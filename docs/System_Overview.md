@@ -51,7 +51,7 @@ PI-5/
 │   ├── tools/
 │   │   ├── iot_tools.py        ← execute_diagnostic_command, request_mitigation_approval
 │   │   ├── db_tools.py         ← register_alert, update_alert_status, rotate_old_logs
-│   │   └── policy_engine.py    ← Motor de clasificación + audit + verify_feedback
+│   │   └── policy_engine.py    ← Motor de clasificación + audit
 │   └── templates/
 │       └── index.html          ← Single-page dashboard (glassmorphism)
 ├── config.yml                  ← Configuración centralizada (AWS, MQTT, queue, retention)
@@ -83,7 +83,7 @@ Punto de entrada del coordinador. Responsabilidades en orden de ejecución:
 6. Suscribe el callback `process_event` a los tres topics de entrada (`telemetria`, `evento`, `respuesta`).
 7. Ejecuta el event loop de asyncio indefinidamente.
 
-`process_event` clasifica el mensaje por sufijo del topic, ejecuta el round-trip verification del Policy Engine si es una respuesta, y encola en la cola correspondiente de forma thread-safe usando `_enqueue_from_thread`. Detalles del flujo y el código de las colas en [Agent_Architecture.md](Agent_Architecture.md).
+`process_event` clasifica el mensaje por sufijo del topic, normaliza las respuestas de PI-4 y encola en la cola correspondiente de forma thread-safe usando `_enqueue_from_thread`. Detalles del flujo y el código de las colas en [Agent_Architecture.md](Agent_Architecture.md).
 
 ### 3.3 Agentes IA (`agents/`)
 
@@ -106,17 +106,16 @@ Las **únicas** funciones que los agentes pueden invocar. Toda acción con efect
 | `register_alert(...)` | `db_tools.py` | INSERT en `logs` con `status='LOGGED'` |
 | `update_alert_status(...)` | `db_tools.py` | UPDATE de `estado_mitigacion` en la fila más reciente |
 | `execute_diagnostic_command(...)` | `iot_tools.py` | Publica en `seguridad/<device>/comando` si el Policy Engine lo clasifica SAFE_READ |
-| `request_mitigation_approval(..., revert_command="")` | `iot_tools.py` | Clasifica + auto-ejecuta (SAFE_READ/LOW) o cuarentena PENDING (HIGH/CRITICAL); guarda rollback explícito si se proporciona |
+| `request_mitigation_approval(..., revert_command="")` | `iot_tools.py` | Clasifica + despacha solo SAFE_READ o cuarentena PENDING cualquier LOW/HIGH/CRITICAL; guarda rollback explícito si se proporciona |
 
-Cada vez que se publica un comando, `policy_engine.record_dispatch(...)` lo anota en la caché de despachos (TTL 5 min) para que `verify_feedback` pueda validarlo cuando vuelva la respuesta.
+Cada vez que se publica un comando, PI-5 lo firma con Ed25519. PI-4 verifica firma, expiración y nonce antes de ejecutar; si falla, responde con `rejected_signature`.
 
 ### 3.5 Motor de Políticas (`tools/policy_engine.py`)
 
-Capa transversal — no la invoca el agente directamente sino las tools, el dashboard y el coordinador. Tres responsabilidades:
+Capa transversal — no la invoca el agente directamente sino las tools y el dashboard. Dos responsabilidades:
 
 1. **Clasificar comandos** en SAFE_READ/LOW/HIGH/CRITICAL antes de publicar.
-2. **Registrar despachos** y verificar round-trip cuando llega una respuesta (detecta inyección por credenciales filtradas).
-3. **Escribir audit log inmutable** (`audit_log` con triggers que abortan UPDATE/DELETE).
+2. **Escribir audit log inmutable** (`audit_log` con triggers que abortan UPDATE/DELETE).
 
 Especificación completa: [funcionamiento_policy_engine.md](funcionamiento_policy_engine.md).
 
@@ -131,7 +130,7 @@ Flask + HTTP Basic Auth. Sirve:
 - Página única con feed de logs, métricas, gráficas de vectores y vista radar de topología.
 - Endpoint AJAX `/api/data` que refresca cada 5 s.
 - Endpoint `/api/mitigate/approve` para el flujo HITL.
-- Endpoint `/revert/<id>` para deshacer mitigaciones aprobadas (LOW auto-ejecutadas o HIGH/CRITICAL aprobadas manualmente) usando `revert_command`, una inversa derivable segura o un comando editado por el operador.
+- Endpoint `/revert/<id>` para deshacer mitigaciones aprobadas usando `revert_command`, una inversa derivable segura o un comando editado por el operador.
 
 Especificación completa: [Dashboard_Architecture.md](Dashboard_Architecture.md).
 
@@ -151,15 +150,15 @@ Caso canónico — fuerza bruta SSH contra el PI-4:
           rationale="brute-force SSH",
           revert_command="sudo iptables -D INPUT -s 1.2.3.4 -j DROP")
 6. Policy Engine clasifica el comando como LOW (iptables -A contra IP concreta).
-7. _auto_execute_low() publica en seguridad/Pi4-Felix/comando + UPDATE status='APPROVED'.
-   policy_engine.audit(event_type='AUTO_DISPATCH', ...).
-8. PI-4: subscriber recibe el comando, lo pasa por su whitelist y ejecuta iptables.
-9. PI-4 publica:  seguridad/Pi4-Felix/respuesta  { "comando": "...", "status": "success" }
-10. PI-5: process_event llama policy_engine.verify_feedback → MATCH (estaba en caché).
-11. Se encola en feedback_queue.
-12. El feedback_task lo saca de la cola inmediatamente y el SOC_Feedback_Agent llama update_alert_status('EXITO', ...).
-13. El dashboard muestra la fila con badge verde [EXITO] en el siguiente refresh (5 s).
-14. El operador, si lo desea, pulsa REVERTIR; se calcula el comando inverso (-A → -D),
+7. _quarantine_for_hitl() guarda el comando con status='PENDING' y audit(QUARANTINE).
+8. Dashboard muestra el botón "Revisar Mitigación"; el operador aprueba o rechaza.
+9. Si aprueba, /api/mitigate/approve re-clasifica, firma el payload, publica en seguridad/Pi4-Felix/comando y audit(APPROVE).
+10. PI-4 verifica firma Ed25519, expiración y nonce; si todo cuadra, ejecuta iptables.
+11. PI-4 publica:  seguridad/Pi4-Felix/respuesta  { "comando": "...", "status": "success" }
+12. PI-5 normaliza la respuesta y la encola en feedback_queue.
+13. El feedback_task lo saca de la cola inmediatamente y el SOC_Feedback_Agent llama update_alert_status('EXITO', ...).
+14. El dashboard muestra la fila con badge verde [EXITO] en el siguiente refresh (5 s).
+15. El operador, si lo desea, pulsa REVERTIR; se calcula el comando inverso (-A → -D),
     se vuelve a publicar y se audita como REVERT.
 ```
 
@@ -172,18 +171,16 @@ Caso de mitigación destructiva (HIGH/CRITICAL):
 8'. Operador abre el modal, edita o no el comando, pulsa Aprobar.
 9'. /api/mitigate/approve re-clasifica el comando final.
     - Si la edición lo elevó a CRITICAL y falta confirm_critical → 400 needs_confirmation.
-    - Si OK → publish + record_dispatch + audit(APPROVE) + status='APPROVED'.
-10'. Resto idéntico al caso LOW desde el paso 8.
+    - Si OK → firma Ed25519 + publish + audit(APPROVE) + status='APPROVED'.
+10'. Resto idéntico al caso LOW desde el paso 10.
 ```
 
-Caso anómalo (PI-4 reporta haber ejecutado algo que el coordinador no emitió):
+Caso anómalo (PI-4 recibe un comando sin firma válida):
 
 ```
-9''. PI-5: verify_feedback → ANOMALY (no estaba en caché de despachos).
-10''. register_alert(attack_vector='INTRUSION-COMMAND-INJECTION', severity='Critica').
-      audit(event_type='ANOMALY').
-      No se encola al feedback_agent.
-11''. El triage lo verá al encolarse en su cola como una alerta crítica nueva.
+1''. PI-4: verify_payload falla por firma, expiración o nonce repetido.
+2''. PI-4 no ejecuta shell y publica status='rejected_signature'.
+3''. PI-5 normaliza el feedback y el SOC_Feedback_Agent registra RECHAZADO_FIRMA.
 ```
 
 ## 5. Cómo encaja AWS IoT Core
@@ -192,7 +189,7 @@ AWS IoT Core es **solo broker**. No tiene lógica de aplicación. Aporta:
 
 - **mTLS:** autenticación mutua. Cada `client_id` lleva su par cert/key.
 - **Policy IAM:** restringe qué `client_id` puede conectar y a qué prefijo de topic. En el proyecto sólo están autorizados `Pi5-dani`, `Pi4-felix` y `Dashboard-SOC-Pi5`, todos limitados al prefijo `seguridad/*`.
-- **Pub/Sub QoS 1:** "at least once". Suficiente para este caso de uso; el reprocesado de un evento idéntico no rompe nada porque `register_alert` añade y los comandos llevan `record_dispatch` con TTL.
+- **Pub/Sub QoS 1:** "at least once". Suficiente para este caso de uso; el reprocesado de un evento idéntico no rompe nada porque `register_alert` añade y los comandos firmados llevan nonce anti-replay.
 
 No se usa ni Device Shadow ni Rules Engine ni Jobs. Todo el routing vive en el coordinador. Detalles del esquema de topics y de la Policy en [funcionamiento_mqtt.md](funcionamiento_mqtt.md).
 
@@ -204,7 +201,7 @@ No se usa ni Device Shadow ni Rules Engine ni Jobs. Todo el routing vive en el c
 | **Procesamiento inmediato con colas asíncronas** | Elimina delays artificiales procesando eventos al instante (0ms de latencia) y encolando ráfagas secuencialmente para el LLM. |
 | **Policy Engine centralizado en PI-5** | Permite cambiar la política sin tocar PI-4. PI-4 ejecuta lo que llega; toda decisión vive en el core. |
 | **Audit log inmutable con triggers SQLite** | Garantía forense: ni la propia aplicación puede modificar el registro de decisiones. Mapea con NIST AU-2 e ISO 27001 A.12.4. |
-| **HITL solo para HIGH/CRITICAL** | Evita pedir confirmación constantemente por mitigaciones rutinarias (bloqueos IP). LOW auto-ejecuta + botón REVERTIR. |
+| **HITL para cualquier escritura** | Solo las lecturas `SAFE_READ` se despachan sin fricción; cualquier comando `LOW`, `HIGH` o `CRITICAL` requiere decisión humana. |
 | **InMemorySessionService de ADK** | Las sesiones del ADK son efímeras dentro de un único proceso. Si el coordinador reinicia, se crea una sesión nueva — el estado relevante vive en SQLite, no en la sesión. |
 
 ## 7. Archivos por rol
@@ -227,8 +224,8 @@ No se usa ni Device Shadow ni Rules Engine ni Jobs. Todo el routing vive en el c
 - **ADK** — Google Agent Development Kit. Framework de orquestación de agentes LLM con tools tipadas.
 - **HITL** — Human-in-the-Loop. Modelo donde la IA propone y el humano aprueba acciones destructivas.
 - **mTLS** — TLS mutuo. Cliente y servidor se autentican con certificados.
-- **Policy Engine** — Motor que clasifica cada comando antes de publicarlo y verifica round-trip.
-- **Round-trip verification** — Cotejar que cada respuesta venga de un comando previamente emitido.
+- **Policy Engine** — Motor que clasifica cada comando antes de publicarlo y audita decisiones.
+- **Ed25519 command signing** — Firma de payloads desde PI-5 y verificación preventiva en PI-4 antes de ejecutar.
 - **asyncio.Queue / Procesamiento Inmediato** — Procesar los eventos de seguridad tan pronto como llegan usando workers asíncronos y colas acotadas.
 
 ## 9. Siguientes pasos

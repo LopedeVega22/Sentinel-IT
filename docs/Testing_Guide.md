@@ -17,7 +17,7 @@ No describe la lógica que validan los tests — para eso ir al doc del componen
 
 ```
 PI-5/tests/
-├── test_policy_engine.py     ← unitario  ← motor de políticas (30 tests, offline)
+├── test_policy_engine.py     ← unitario  ← motor de políticas (36 tests, offline)
 ├── test_feedback_loop.py     ← integ.    ← tools + BD reales, MQTT mock (offline)
 ├── test_dashboard_api.py     ← unitario  ← endpoints Flask, MQTT mock (offline)
 ├── test_adk.py               ← integ.    ← triage_agent vivo con Gemini, MQTT mock (online IA)
@@ -43,9 +43,9 @@ PI-5/tests/
 **Lo que cubre:**
 
 - Clasificación de comandos en `SAFE_READ` / `LOW` / `HIGH` / `CRITICAL`.
-- Reglas de escalado (intérpretes con `-c`, metacaracteres, wildcards en paths sensibles, encadenamiento `;` con verbo destructivo).
+- Reglas de escalado (intérpretes con `-c`, pipelines, redirecciones, metacaracteres, wildcards en paths sensibles, encadenamiento `;` con verbo destructivo).
 - Verbos desconocidos caen a `LOW` (nunca DENY automático).
-- Verificación round-trip (`record_dispatch` + `verify_feedback` → MATCH/ANOMALY).
+- `request_mitigation_approval` despacha solo `SAFE_READ` directo y deja `LOW`/`HIGH`/`CRITICAL` en HITL.
 - Inmutabilidad del `audit_log` (triggers anti-UPDATE/DELETE).
 
 **Cómo correrlo:**
@@ -192,7 +192,7 @@ python -m unittest discover -s tests -p "test_*.py" -v 2>&1 | tee /tmp/test_run.
 Áreas que no tienen cobertura automatizada todavía:
 
 - **HITL completo:** un test que apruebe una mitigación PENDING vía el endpoint `/api/mitigate/approve` y verifique el flujo de re-clasificación + audit. Hoy solo se cubre con `test_dashboard_api.py` a nivel de smoke.
-- **Revert end-to-end completo:** existe cobertura unitaria para la derivación de rollback (`test_revert_commands.py`) y casos de endpoint en `test_dashboard_api.py`, pero falta una prueba E2E con MQTT real que confirme ejecución en PI-4 y round-trip de `estado_mitigacion`.
+- **Revert end-to-end completo:** existe cobertura unitaria para la derivación de rollback (`test_revert_commands.py`) y casos de endpoint en `test_dashboard_api.py`, pero falta una prueba E2E con MQTT real que confirme ejecución en PI-4 y feedback de `estado_mitigacion`.
 - **Queues asíncronas:** no hay test que valide los límites de backpressure bajo carga pesada. El comportamiento se valida indirectamente en `test_agent_flow.py`.
 
 Estas mejoras quedan registradas en [futuras_mejoras.md](futuras_mejoras.md) (si se añaden) o como issues.

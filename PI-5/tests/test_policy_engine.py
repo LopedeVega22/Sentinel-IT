@@ -9,6 +9,7 @@ import os
 import sqlite3
 import sys
 import tempfile
+import types
 import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
@@ -35,10 +36,22 @@ class TestClassification(unittest.TestCase):
         self.assertEqual(classify("sudo iptables -S").level, RiskLevel.SAFE_READ)
 
     def test_systemctl_status_es_read(self):
-        self.assertEqual(classify("sudo systemctl status apache2").level, RiskLevel.HIGH)
-        # Nota: systemctl en general es BROAD_WRITE; el subcomando 'status' es
-        # idealmente SAFE_READ pero el clasificador trata systemctl como
-        # peligroso por defecto. Test documenta el comportamiento real.
+        self.assertEqual(classify("sudo systemctl status apache2").level, RiskLevel.SAFE_READ)
+
+    def test_service_status_es_read(self):
+        self.assertEqual(classify("sudo service apache2 status").level, RiskLevel.SAFE_READ)
+
+    def test_find_sin_mutacion_es_read(self):
+        self.assertEqual(classify("find /var/log -type f -name '*.log'").level, RiskLevel.SAFE_READ)
+
+    def test_pipe_entre_lecturas_es_read(self):
+        self.assertEqual(classify("ps aux | grep sshd").level, RiskLevel.SAFE_READ)
+
+    def test_pipe_hacia_interprete_no_es_read(self):
+        self.assertGreaterEqual(classify("cat /tmp/payload | bash").level, RiskLevel.HIGH)
+
+    def test_redireccion_de_salida_no_es_read(self):
+        self.assertGreaterEqual(classify("cat /tmp/x > /tmp/out").level, RiskLevel.LOW)
 
     # --- LOW ---
     def test_iptables_bloqueo_ip_es_low(self):
@@ -200,14 +213,24 @@ class TestAuditLogInmutable(unittest.TestCase):
 class TestMitigationApprovalAutoExecute(unittest.TestCase):
     """
     Comprueba la nueva semantica de request_mitigation_approval:
-        - LOW (o SAFE_READ) -> publica directo via _iot_client (auto-ejecucion).
-        - HIGH / CRITICAL  -> queda en cuarentena (no publica).
+        - SAFE_READ -> publica directo via _iot_client.
+        - LOW / HIGH / CRITICAL -> queda en cuarentena (no publica).
     Mockea el cliente IoT y la BD para no depender del entorno.
     """
 
     def setUp(self):
+        self._iot_tools_preloaded = "tools.iot_tools" in sys.modules
+        self._original_signing_module = sys.modules.get("tools.signing")
+        signing_stub = types.SimpleNamespace(
+            DEFAULT_TTL_SECONDS=60,
+            load_private_key=lambda _path: None,
+            sign_payload=lambda payload, ttl_seconds=60: payload,
+        )
+        sys.modules["tools.signing"] = signing_stub
+
         from tools import iot_tools
         self.iot_tools = iot_tools
+        self._original_iot_signing = getattr(iot_tools, "signing", None)
 
         # Cliente IoT mock que registra los publish
         class _MockClient:
@@ -232,6 +255,7 @@ class TestMitigationApprovalAutoExecute(unittest.TestCase):
                 accion_tomada TEXT,
                 status TEXT,
                 pending_command TEXT,
+                revert_command TEXT,
                 rationale TEXT,
                 timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
             );
@@ -263,6 +287,14 @@ class TestMitigationApprovalAutoExecute(unittest.TestCase):
         self.iot_tools.DB_PATH = self._original_iot_db
         policy_engine.DB_PATH = self._original_policy_db
         self.iot_tools.init_iot_tools(None)
+        if self._original_signing_module is None:
+            sys.modules.pop("tools.signing", None)
+        else:
+            sys.modules["tools.signing"] = self._original_signing_module
+        if self._iot_tools_preloaded:
+            self.iot_tools.signing = self._original_iot_signing
+        else:
+            sys.modules.pop("tools.iot_tools", None)
         try:
             os.remove(self.db_path)
         except OSError:
@@ -275,16 +307,38 @@ class TestMitigationApprovalAutoExecute(unittest.TestCase):
         conn.close()
         return row[0]
 
-    def test_low_se_autoejecuta(self):
+    def test_safe_read_se_autoejecuta(self):
+        result = self.iot_tools.request_mitigation_approval(
+            device="Pi4-Test",
+            mitigation_command="sudo journalctl -u sshd",
+            rationale="Leer logs de SSH",
+        )
+        self.assertEqual(result["status"], "auto_executed")
+        self.assertEqual(result["risk_level"], "SAFE_READ")
+        self.assertEqual(len(self.mock_client.publishes), 1)
+        self.assertEqual(self._row_status(), "APPROVED")
+
+    def test_low_queda_pendiente(self):
         result = self.iot_tools.request_mitigation_approval(
             device="Pi4-Test",
             mitigation_command="sudo iptables -A INPUT -s 1.2.3.4 -j DROP",
             rationale="Bloqueo de IP atacante",
         )
-        self.assertEqual(result["status"], "auto_executed")
+        self.assertEqual(result["status"], "pending_approval")
         self.assertEqual(result["risk_level"], "LOW")
-        self.assertEqual(len(self.mock_client.publishes), 1)
-        self.assertEqual(self._row_status(), "APPROVED")
+        self.assertEqual(len(self.mock_client.publishes), 0)
+        self.assertEqual(self._row_status(), "PENDING")
+
+    def test_comando_desconocido_queda_pendiente(self):
+        result = self.iot_tools.request_mitigation_approval(
+            device="Pi4-Test",
+            mitigation_command="herramienta-rara --modo verbose",
+            rationale="Accion no catalogada",
+        )
+        self.assertEqual(result["status"], "pending_approval")
+        self.assertEqual(result["risk_level"], "LOW")
+        self.assertEqual(len(self.mock_client.publishes), 0)
+        self.assertEqual(self._row_status(), "PENDING")
 
     def test_high_queda_pendiente(self):
         result = self.iot_tools.request_mitigation_approval(

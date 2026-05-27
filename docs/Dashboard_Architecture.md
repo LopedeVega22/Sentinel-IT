@@ -162,10 +162,9 @@ Lógica resumida (código en `dashboard_soc.py:510` aprox):
         └─ Si la conexion esta caida o AWS rechaza el publish:
               return 502 { status: "error", message: "MQTT publish failed: <err>" }
               (la BD NO se toca; la fila sigue PENDING para reintentar)
-        policy_engine.record_dispatch(cmd, device, log_id=log_id)
         audit(APPROVE)
      d) UPDATE logs SET status='APPROVED',
-                       estado_mitigacion=NULL,    ← resetea para round-trip
+                       estado_mitigacion=NULL,    ← resetea para esperar feedback de PI-4
                        accion_tomada += '[EJECUTADO]'
      e) return 200 { status:'dispatching', log_id }   ← NO 'success' todavia
         (el front polleara /api/mitigate/status/<id> hasta ver phase='executed')
@@ -180,7 +179,7 @@ Detalle del modal (banner por color, checkbox CRITICAL, edición inline): [HITL_
 
 ## 8. Endpoint REVERT: `/revert/<id>`
 
-Reverso operativo de una mitigación previamente aprobada (sea por HITL o por auto-ejecución LOW).
+Reverso operativo de una mitigación previamente aprobada por HITL o de una lectura `SAFE_READ` despachada directamente.
 
 ```
 POST /revert/123
@@ -200,22 +199,21 @@ Lógica:
 4. Re-clasificar el comando inverso con policy_engine.classify(...).
 5. mqtt.publish(seguridad/<device>/comando, payload, wait_for_ack=True)
    ├─ Misma garantia que approve: espera PUBACK; si falla, return 502 sin tocar BD.
-   policy_engine.record_dispatch(cmd, device, log_id=log_id)
    audit(REVERT)
 6. UPDATE logs SET status='REVERTED',
                   pending_command=<comando revert enviado>,
-                  estado_mitigacion=NULL,        ← resetea para round-trip
+                  estado_mitigacion=NULL,        ← resetea para esperar feedback de PI-4
                   accion_tomada += '[REVERTIDO]'.
 7. return 200 { status:'dispatching', log_id }   ← el front pollea igual que approve
 ```
 
-La columna `pending_command` se rellena tanto cuando entra en cuarentena HITL como cuando se auto-ejecuta LOW (ver [iot_tools.py `_auto_execute_low`](../PI-5/src/tools/iot_tools.py)). La columna `revert_command` guarda el rollback exacto si el agente lo pudo proponer al crear la mitigación. Si no existe rollback explícito, el dashboard solo deriva inversiones conservadoras; no inventa comandos genéricos.
+La columna `pending_command` se rellena cuando entra en cuarentena HITL y también cuando se despacha directamente una acción `SAFE_READ` desde `iot_tools.py`. La columna `revert_command` guarda el rollback exacto si el agente lo pudo proponer al crear la mitigación. Si no existe rollback explícito, el dashboard solo deriva inversiones conservadoras; no inventa comandos genéricos.
 
 **Retry loop:** la UPDATE final se reintenta hasta 3 veces con `sleep(1)` ante `database is locked` (escenario plausible si llega un INSERT desde el coordinator en paralelo). Ver detalles del modo WAL en [Database_Schema.md](Database_Schema.md).
 
 ## 8.1 Endpoint STATUS: `/api/mitigate/status/<log_id>` (GET)
 
-Cierra el bucle del round-trip HITL. Tras aprobar o revertir un comando, el front no recibe un toast definitivo de inmediato — recibe `status='dispatching'` y arranca un poll a este endpoint cada 1 s hasta 30 s.
+Cierra el bucle de feedback operativo del HITL. Tras aprobar o revertir un comando, el front no recibe un toast definitivo de inmediato — recibe `status='dispatching'` y arranca un poll a este endpoint cada 1 s hasta 30 s.
 
 ```
 GET /api/mitigate/status/123

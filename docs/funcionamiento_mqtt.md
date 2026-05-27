@@ -160,7 +160,7 @@ Todos los topics del esquema empiezan por `seguridad/`, por lo que **no es neces
 | Asíncrono (fire-and-forget) | `wait_for_ack=False` *(default)* | `iot_tools.py` (agente ADK) | El método encola el publish en el event loop de awscrt y retorna al instante. Si la conexión está caída, el mensaje queda en buffer o se pierde silenciosamente. |
 | Síncrono | `wait_for_ack=True` | `dashboard_soc.py` (HITL: aprobar y revertir) | El método espera hasta `ack_timeout` segundos (5 s por defecto) a que el broker devuelva el PUBACK de QoS 1. Si no llega o la conexión falla, lanza excepción y el endpoint Flask devuelve `502 Bad Gateway` al navegador. |
 
-**Por qué la diferencia.** El agente puede tolerar un retraso de varios milisegundos en sus diagnósticos y mitigaciones LOW; lo importante es que el thread del ADK no se bloquee. En cambio, cuando el operador humano aprueba un comando desde el dashboard quiere certeza inmediata: si la conexión MQTT del dashboard está caída o AWS rechaza el publish por política, prefiere ver un toast de error en lugar de un falso "Mitigación aplicada correctamente" seguido de un comando que nunca llega a PI-4.
+**Por qué la diferencia.** El agente puede tolerar un retraso de varios milisegundos en sus diagnósticos `SAFE_READ`; lo importante es que el thread del ADK no se bloquee. En cambio, cuando el operador humano aprueba un comando desde el dashboard quiere certeza inmediata: si la conexión MQTT del dashboard está caída o AWS rechaza el publish por política, prefiere ver un toast de error en lugar de un falso "Mitigación aplicada correctamente" seguido de un comando que nunca llega a PI-4.
 
 **Implementación.** El método interno hace `connection.publish(...)` (que devuelve `(future, packet_id)`) y, en modo síncrono, llama a `future.result(timeout=ack_timeout)`. El log distingue ambos casos:
 
@@ -171,11 +171,11 @@ Todos los topics del esquema empiezan por `seguridad/`, por lo que **no es neces
 
 **Comportamiento ante fallo en el HITL.** Si el publish síncrono lanza excepción, `approve_mitigation` y `revert_action` retornan antes de actualizar la BD, de modo que la fila **no** queda marcada como `APPROVED/REVERTED`. El operador puede reintentar sin contaminar la auditoría.
 
-## Verificación end-to-end del HITL (round-trip por `/respuesta`)
+## Feedback end-to-end del HITL por `/respuesta`
 
-El PUBACK síncrono solo garantiza que **AWS** aceptó el comando. Para confirmar que **PI-4 lo ejecutó** se cierra el bucle con la respuesta del sensor (`seguridad/Pi4-Felix/respuesta`).
+El PUBACK síncrono solo garantiza que **AWS** aceptó el comando. Para confirmar si **PI-4 lo ejecutó, falló o lo rechazó por firma**, el dashboard observa la respuesta del sensor (`seguridad/Pi4-Felix/respuesta`) y el campo `estado_mitigacion`.
 
-### Diagrama del round-trip
+### Diagrama del feedback
 
 ```
    Operador                Dashboard                  AWS IoT                  PI-4
@@ -202,10 +202,10 @@ El PUBACK síncrono solo garantiza que **AWS** aceptó el comando. Para confirma
       │                        │                         │       (status=success,│
       │                        │                         │        output="...")  │
       │                        │ 8. process_event:       │                       │
-      │                        │    match_feedback(...)  │                       │
-      │                        │    → log_id=N           │                       │
-      │                        │    mark_mitigation_     │                       │
-      │                        │     result(N,EXITO,...) │                       │
+      │                        │    normaliza respuesta  │                       │
+      │                        │    encola feedback      │                       │
+      │                        │    update_alert_status  │                       │
+      │                        │     (EXITO/FALLO/...)   │                       │
       │                        │ 9. poll → phase=executed│                       │
       │   toast verde          │◄────────────────────────┤                       │
       │  "PI-4 confirmó"       │                         │                       │
@@ -216,20 +216,21 @@ El PUBACK síncrono solo garantiza que **AWS** aceptó el comando. Para confirma
 
 | Pieza | Archivo | Función |
 |---|---|---|
-| Correlación dispatch → fila | [policy_engine.match_feedback](../PI-5/src/tools/policy_engine.py) | Devuelve la entrada de `_dispatch_cache` (incluye `log_id`) cuya cadena normalizada coincide con el comando que reporta PI-4. |
-| Escritura inmediata | [db_tools.mark_mitigation_result](../PI-5/src/tools/db_tools.py) | UPDATE `estado_mitigacion` por `log_id` exacto (no "última fila del dispositivo"). |
-| Fast-path | [main_coordinator.process_event](../PI-5/src/main_coordinator.py) | Cuando llega `/respuesta`: si `match_feedback` devuelve `log_id`, escribe `[EXITO]`/`[FALLO]` antes de encolar al feedback_agent. |
+| Normalización | [main_coordinator.process_event](../PI-5/src/main_coordinator.py) | Convierte la respuesta de PI-4 al formato canónico `sensor`, `command`, `status`, `exitcode`, `output`. |
+| Escritura de resultado | [db_tools.update_alert_status](../PI-5/src/tools/db_tools.py) | UPDATE en la última fila del dispositivo con `EXITO`, `FALLO` o `RECHAZADO_FIRMA`. |
+| Feedback agent | [feedback_agent.py](../PI-5/src/agents/feedback_agent/feedback_agent.py) | Registra el resultado normalizado y puede proponer otra acción si `status=error`. |
 | Endpoint de polling | [dashboard_soc.mitigation_status](../PI-5/src/dashboard_soc.py) | `GET /api/mitigate/status/<log_id>` → `{phase: awaiting_pi4|executed|failed|feedback, …}`. |
 | Polling cliente | `index.html → pollMitigationStatus(logId, 30)` | Llama al endpoint cada 1 s hasta 30 s. Cierra con toast verde, rojo o de timeout. |
 
-### Por qué dos caminos para `/respuesta`
+### Por qué `/respuesta` pasa por feedback_agent
 
-Cuando llega un mensaje en `seguridad/+/respuesta`, el coordinador hace **dos cosas**:
+Cuando llega un mensaje en `seguridad/+/respuesta`, el coordinador normaliza el payload y lo encola al `feedback_agent`:
 
-1. **Fast-path síncrono** (sin LLM): si el comando correlaciona con un dispatch reciente, escribe `estado_mitigacion` en la fila exacta. Esto da feedback al operador en ~1 s.
-2. **Cola del feedback_agent** (con LLM, procesamiento inmediato asíncrono): el mensaje se encola para el agente de IA, que consume y procesa de inmediato el feedback de forma secuencial sin bloquear el flujo principal.
+1. Si PI-4 ejecutó bien, el agente registra `EXITO`.
+2. Si PI-4 devolvió error, registra `FALLO` y puede proponer alternativa por HITL.
+3. Si PI-4 rechazó firma (`rejected_signature`), registra `RECHAZADO_FIRMA` y no reemite comandos.
 
-Los dos caminos no se pisan: el fast-path escribe en `estado_mitigacion` con prefijo `[EXITO]/[FALLO]`; el agente, si llama a `update_alert_status` después, hace `||` (concatenación) y deja constancia de su análisis sin sobrescribir el resultado crudo.
+La autenticidad se decide antes de ejecutar en PI-4 mediante Ed25519, no por una correlación posterior con caché de despachos.
 
 ### Fallback: PI-4 no responde
 

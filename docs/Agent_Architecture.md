@@ -23,7 +23,7 @@ No cubre el HITL del dashboard (eso está en `HITL_Architecture.md`), ni la lóg
 - **Tools expuestas:**
   - `register_alert(device, attack_vector, source_ip, severity, verdict, raw_log)` — escribe el incidente en SQLite. **Obligatoria una sola vez por amenaza confirmada.**
   - `execute_diagnostic_command(device, command, reason)` — diagnóstico de lectura. El Policy Engine decide: si es SAFE_READ se publica directo a `seguridad/<device>/comando`; cualquier otro nivel se redirige automáticamente al flujo HITL.
-  - `request_mitigation_approval(device, mitigation_command, rationale, revert_command="")` — propuesta de mitigación. LOW/SAFE_READ auto-ejecutan, HIGH/CRITICAL quedan en cuarentena (`status='PENDING'`) para revisión humana en el dashboard. Si el agente conoce un rollback real, lo pasa en `revert_command`; si no lo conoce, lo deja vacío.
+  - `request_mitigation_approval(device, mitigation_command, rationale, revert_command="")` — propuesta de mitigación. Solo SAFE_READ se publica directo; LOW/HIGH/CRITICAL quedan en cuarentena (`status='PENDING'`) para revisión humana en el dashboard. Si el agente conoce un rollback real, lo pasa en `revert_command`; si no lo conoce, lo deja vacío.
 
 ### 2.2 SOC_Feedback_Agent (`src/agents/feedback_agent/feedback_agent.py`)
 
@@ -48,11 +48,12 @@ Definida en `main_coordinator.py:79`. Una por agente (`_triage_queue`, `_feedbac
 
 ### 2.5 Policy Engine (resumen del acoplamiento)
 
-El motor (`src/tools/policy_engine.py`) interviene en **tres puntos** del flujo de agentes:
+El motor (`src/tools/policy_engine.py`) interviene en **dos puntos** del flujo de agentes:
 
-1. **Capa 1 – Clasificación previa:** cuando el triage llama a `request_mitigation_approval` o a `execute_diagnostic_command`, el motor clasifica el comando y decide si auto-ejecuta o cuarentena.
-2. **Capa 2 – Caché de despachos:** cada comando publicado al broker se anota en `_dispatch_cache` (TTL 5 min) con `policy_engine.record_dispatch(...)`.
-3. **Capa 3 – Verificación round-trip:** al recibir un mensaje en `seguridad/<device>/respuesta`, el coordinador llama a `policy_engine.verify_feedback(executed_cmd, device)`. Si el resultado es `ANOMALY`, **no se encola al feedback_agent**; en su lugar se registra una alerta `INTRUSION-COMMAND-INJECTION` y el flujo se desvía al triage en la siguiente ronda.
+1. **Capa 1 – Clasificación previa:** cuando el triage llama a `request_mitigation_approval` o a `execute_diagnostic_command`, el motor clasifica el comando y decide si es lectura directa (`SAFE_READ`) o cuarentena HITL.
+2. **Capa 2 – Auditoría:** cada decisión queda en `audit_log` mediante `policy_engine.audit(...)`.
+
+La autenticidad del comando ya no depende de una caché reactiva de despachos: PI-5 firma cada payload con Ed25519 y PI-4 verifica firma, expiración y nonce antes de ejecutar.
 
 ## 3. Topics MQTT consumidos y producidos
 
@@ -60,8 +61,8 @@ El motor (`src/tools/policy_engine.py`) interviene en **tres puntos** del flujo 
 |-------|-----------|---------------|--------------------|
 | `seguridad/<device>/telemetria` | PI-4 → PI-5 | Sensor PI-4 | `process_event` → `_enqueue_from_thread` → `triage_queue` |
 | `seguridad/<device>/evento` | PI-4 → PI-5 | Sensor PI-4 | `process_event` → `_enqueue_from_thread` → `triage_queue` |
-| `seguridad/<device>/respuesta` | PI-4 → PI-5 | Sensor PI-4 (tras ejecutar) | `process_event` → verify_feedback → `_enqueue_from_thread` → `feedback_queue` |
-| `seguridad/<device>/comando` | PI-5 → PI-4 | `execute_diagnostic_command` / `_auto_execute_low` | El sensor PI-4 lo recibe y ejecuta |
+| `seguridad/<device>/respuesta` | PI-4 → PI-5 | Sensor PI-4 (tras ejecutar o rechazar firma) | `process_event` → normalización → `_enqueue_from_thread` → `feedback_queue` |
+| `seguridad/<device>/comando` | PI-5 → PI-4 | `execute_diagnostic_command` / `_auto_execute_low` / dashboard HITL | El sensor PI-4 verifica firma y ejecuta |
 
 El enrutamiento por sufijo de topic está en `main_coordinator.py:281`:
 
@@ -84,15 +85,15 @@ PI-4 sensor          PI-5 coordinator        Triage Agent      Policy Engine    
       │                       │                      │ register_alert   │                │                  │
       │                       │                      │ request_mitigation_approval(cmd) │                  │
       │                       │                      │──────────────────▶│ classify(cmd) │                  │
-      │                       │                      │   LOW/SAFE_READ  │                │                  │
-      │                       │                      │◀──────────────────│ auto-ejecutar │                  │
+      │                       │                      │   SAFE_READ directo; LOW/HIGH/CRITICAL a HITL       │
+      │                       │                      │◀──────────────────│ decidir flujo │                  │
       │                       │ publish seguridad/X/comando             │                │                  │
-      │                       │ + record_dispatch    │                  │                │                  │
+      │                       │ + firma Ed25519      │                  │                │                  │
       │◀──────────────────────│                      │                  │                │                  │
       │ ejecuta y responde    │                      │                  │                │                  │
       │──────────────────────▶│                      │                  │                │                  │
       │ seguridad/X/respuesta │                      │                  │                │                  │
-      │                       │ verify_feedback ─── MATCH ─────────────▶│                │                  │
+      │                       │ normaliza feedback ─────────────────────▶│                │                  │
       │                       │ encola en feedback_queue                │                │                  │
       │                       │──────────────────────────────────────────────────────────│─────────────────▶│
       │                       │                      │                  │                │  update_alert_status
@@ -102,24 +103,21 @@ PI-4 sensor          PI-5 coordinator        Triage Agent      Policy Engine    
       │                       │                      │   con un comando alternativo → vuelve a publicar a PI-4
 ```
 
-Caso anómalo (Capa 3 detecta INTRUSION):
+Caso anómalo (firma inválida):
 
 ```
 PI-4 sensor          PI-5 coordinator        Policy Engine     Triage Agent
-      │ respuesta con comando que jamás se emitió                │
-      │──────────────────────▶│ verify_feedback ─── ANOMALY ────▶│
-      │                       │ register_alert(INTRUSION-COMMAND-INJECTION)
-      │                       │ audit(event_type=ANOMALY)        │
-      │                       │ ─── NO se encola al feedback ────│
-      │                       │ (el triage lo verá al encolarse  │
-      │                       │  como alerta INTRUSION para reaccionar)
+      │ comando con firma inválida                              │
+      │ no ejecuta shell; publica rejected_signature             │
+      │──────────────────────▶│ normaliza feedback ─────────────▶│
+      │                       │ feedback_agent registra RECHAZADO_FIRMA
 ```
 
 ## 5. Reglas críticas que cumple cada agente
 
 ### Triage
 - Llamar `register_alert` **exactamente una vez** por amenaza confirmada.
-- Después de `request_mitigation_approval` debe **parar** la ejecución de tools (queda en cuarentena humana si es HIGH/CRITICAL, o auto-ejecutado si LOW).
+- Después de `request_mitigation_approval` debe **parar** la ejecución de tools (queda en cuarentena humana si es LOW/HIGH/CRITICAL, o se despacha directo solo si era SAFE_READ).
 - Si propone una mitigación reversible, debe incluir `revert_command` con el comando exacto que la deshace. Para comandos sin rollback seguro sin estado previo (`kill`, scripts arbitrarios, cambios de permisos sin snapshot, borrados, etc.), debe dejarlo vacío: el dashboard no inventará una reversión.
 - Si recibe un log con `attack_vector="INTRUSION-COMMAND-INJECTION"`, no propone nuevos comandos sobre ese dispositivo: el razonamiento debe orientarse a rotar credenciales/certificados.
 
@@ -157,7 +155,7 @@ PI-5/
 │   └── tools/
 │       ├── iot_tools.py               # execute_diagnostic_command, request_mitigation_approval
 │       ├── db_tools.py                # register_alert, update_alert_status
-│       └── policy_engine.py           # classify, decide, record_dispatch, verify_feedback, audit
+│       └── policy_engine.py           # classify, decide, audit
 └── tests/
     └── test_agent_flow.py             # Test E2E real (MQTT)
 ```

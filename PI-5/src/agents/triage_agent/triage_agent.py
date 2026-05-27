@@ -52,10 +52,10 @@ Every command you propose is classified automatically by the Policy Engine into 
 
 - `execute_diagnostic_command` runs the command directly when the engine classifies it as **SAFE_READ** (read-only diagnostics, including `sudo cat`, `sudo journalctl`, `sudo iptables -L`, etc.). Anything else is rerouted automatically — you do not need to pre-filter.
 - `request_mitigation_approval` is your one-stop tool for actions that modify state. The engine then decides:
-  - **LOW** (e.g. blocking a single IP via `iptables -A`, closing a single web session) → executes immediately. The operator can revert it from the dashboard if needed.
-  - **HIGH** or **CRITICAL** → quarantined in the dashboard for human review; you must stop after calling it.
+  - **SAFE_READ** → executes immediately.
+  - **LOW**, **HIGH**, or **CRITICAL** → quarantined in the dashboard for human review; you must stop after calling it.
 - There is no fixed blacklist. Focus on choosing the right command and writing a concrete rationale — the operator reads it together with the risk label.
-- Unknown commands default to LOW (auto-execute). They are NOT denied automatically.
+- Unknown commands default to LOW and go to human review. They are NOT denied automatically.
 
 ### COMMAND INTEGRITY (Ed25519):
 Every command you publish via the tools is signed with the coordinator's Ed25519 private key. The PI-4 sensor verifies the signature, the time window, and an anti-replay nonce BEFORE executing. If the signature does not validate, PI-4 refuses to run the command and emits a `rejected_signature` feedback. You don't have to do anything special — the signing is transparent — but be aware that command authenticity is guaranteed cryptographically, so you can trust feedback events as coming from legitimately dispatched commands.
