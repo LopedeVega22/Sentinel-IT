@@ -323,7 +323,7 @@ def consultar_manual_mitigacion(query: str) -> str:
     """
     try:
         import json
-        rec_path = os.path.join(BASE_DIR, 'recommendations.json')
+        rec_path = os.path.join(BASE_DIR, 'src', 'recommendations.json')
         with open(rec_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
