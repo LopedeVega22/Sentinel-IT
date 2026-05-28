@@ -11,6 +11,14 @@ from aws_connector import AWSMqttClient
 from agents.triage_agent.triage_agent import triage_agent
 from agents.feedback_agent.feedback_agent import feedback_agent
 from tools.iot_tools import init_iot_tools
+from tools.pending_ai_events import (
+    fetch_due_pending_ai_events,
+    init_pending_ai_events_schema,
+    is_resource_exhausted_error,
+    mark_pending_ai_event_processed,
+    mark_pending_ai_event_retry,
+    save_pending_ai_event,
+)
 
 # ADK imports (google-adk >= 0.3)
 from google.adk.runners import Runner
@@ -31,8 +39,13 @@ TOPIC_SUBSCRIBE_TELEMETRIA = config['mqtt']['topic_subscribe_telemetria']
 TOPIC_SUBSCRIBE_EVENTOS    = config['mqtt']['topic_subscribe_eventos']
 TOPIC_SUBSCRIBE_RESPUESTAS = config['mqtt']['topic_subscribe_respuestas']
 
+_DB_PATH_CFG = config['database']['db_path']
+DB_PATH = _DB_PATH_CFG if os.path.isabs(_DB_PATH_CFG) else os.path.join(os.getcwd(), _DB_PATH_CFG)
+
 # --- Queue Configuration ---
 QUEUE_MAX_SIZE = config.get('queue', {}).get('max_size', 100)
+AI_RETRY_POLL_SECONDS = config.get('queue', {}).get('ai_retry_poll_seconds', 30)
+AI_RETRY_BATCH_SIZE = config.get('queue', {}).get('ai_retry_batch_size', 5)
 
 # --- Logging Configuration ---
 LOG_FILE_PATH    = config['logging']['file_path']
@@ -118,31 +131,108 @@ async def _worker(queue: asyncio.Queue, runner: Runner, queue_type: str, session
     while True:
         device, raw_log = await queue.get()
         try:
-            event_type = "Log" if queue_type == "triage" else "Feedback"
-            message = f"Nuevo {event_type} proveniente del dispositivo '{device}':\n{raw_log}"
             logger.info(f"[{queue_type.upper()}] Processing event from {device}...")
-
-            response_count = 0
-            async for event in runner.run_async(
-                user_id=USER_ID,
-                session_id=session_id,
-                new_message=types.Content(role="user", parts=[types.Part(text=message)])
-            ):
-                content = getattr(event, 'content', None)
-                if content and getattr(content, 'parts', None):
-                    for part in content.parts:
-                        text = getattr(part, 'text', None)
-                        if text:
-                            response_count += 1
-                            logger.info(f"[{queue_type.upper()}] Agent response: {text[:200]}")
-
+            response_count = await _run_agent_event(device, raw_log, runner, queue_type, session_id)
             logger.info(f"[{queue_type.upper()}] Event processed ({response_count} responses)")
 
         except Exception as e:
-            logger.error(f"[{queue_type.upper()}] Error processing event: {e}")
-            logger.error(traceback.format_exc())
+            if is_resource_exhausted_error(e):
+                event_id = save_pending_ai_event(
+                    DB_PATH,
+                    device=device,
+                    queue_type=queue_type,
+                    raw_log=raw_log,
+                    error_reason=str(e),
+                )
+                logger.error(
+                    f"[{queue_type.upper()}] Fallo modelo API: Gemini ha superado cuota/gasto. "
+                    f"Evento guardado como PENDING_AI_RETRY (id={event_id})."
+                )
+            else:
+                logger.error(f"[{queue_type.upper()}] Error processing event: {e}")
+                logger.error(traceback.format_exc())
         finally:
             queue.task_done()
+
+
+async def _run_agent_event(device: str, raw_log: str, runner: Runner, queue_type: str, session_id: str) -> int:
+    event_type = "Log" if queue_type == "triage" else "Feedback"
+    message = f"Nuevo {event_type} proveniente del dispositivo '{device}':\n{raw_log}"
+
+    response_count = 0
+    async for event in runner.run_async(
+        user_id=USER_ID,
+        session_id=session_id,
+        new_message=types.Content(role="user", parts=[types.Part(text=message)])
+    ):
+        content = getattr(event, 'content', None)
+        if content and getattr(content, 'parts', None):
+            for part in content.parts:
+                text = getattr(part, 'text', None)
+                if text:
+                    response_count += 1
+                    logger.info(f"[{queue_type.upper()}] Agent response: {text[:200]}")
+
+    return response_count
+
+
+async def _pending_ai_retry_worker(session_id: str):
+    logger.info(
+        f"[AI_RETRY] Pending AI retry worker started "
+        f"(poll={AI_RETRY_POLL_SECONDS}s, batch={AI_RETRY_BATCH_SIZE})"
+    )
+    runners = {
+        "triage": _runner_triage,
+        "feedback": _runner_feedback,
+    }
+    while True:
+        try:
+            due_events = fetch_due_pending_ai_events(DB_PATH, limit=AI_RETRY_BATCH_SIZE)
+            for pending in due_events:
+                event_id = pending["id"]
+                queue_type = pending["queue_type"]
+                runner = runners.get(queue_type)
+                if runner is None:
+                    mark_pending_ai_event_retry(
+                        DB_PATH,
+                        event_id=event_id,
+                        error_reason=f"queue_type desconocido: {queue_type}",
+                    )
+                    continue
+
+                try:
+                    logger.info(
+                        f"[AI_RETRY] Reintentando evento pendiente id={event_id} "
+                        f"({queue_type}) de {pending['device']}"
+                    )
+                    response_count = await _run_agent_event(
+                        pending["device"],
+                        pending["raw_log"],
+                        runner,
+                        queue_type,
+                        session_id,
+                    )
+                    mark_pending_ai_event_processed(DB_PATH, event_id)
+                    logger.info(
+                        f"[AI_RETRY] Evento pendiente id={event_id} procesado "
+                        f"({response_count} responses)"
+                    )
+                except Exception as e:
+                    if is_resource_exhausted_error(e):
+                        mark_pending_ai_event_retry(DB_PATH, event_id, str(e))
+                        logger.error(
+                            f"[AI_RETRY] Fallo modelo API: Gemini sigue sin cuota/gasto. "
+                            f"Evento id={event_id} queda como PENDING_AI_RETRY."
+                        )
+                    else:
+                        mark_pending_ai_event_retry(DB_PATH, event_id, str(e))
+                        logger.error(f"[AI_RETRY] Error reintentando evento id={event_id}: {e}")
+                        logger.error(traceback.format_exc())
+        except Exception as e:
+            logger.error(f"[AI_RETRY] Error en worker de reintentos: {e}")
+            logger.error(traceback.format_exc())
+
+        await asyncio.sleep(AI_RETRY_POLL_SECONDS)
 
 
 # ===========================================================================
@@ -304,6 +394,8 @@ async def main():
     """Async entry point: sets up queues, workers, MQTT, and runs forever."""
     global _loop, _triage_queue, _feedback_queue
 
+    init_pending_ai_events_schema(DB_PATH)
+
     # Capture the running event loop so the MQTT thread can enqueue work.
     _loop = asyncio.get_running_loop()
 
@@ -351,6 +443,9 @@ async def main():
         feedback_task = asyncio.create_task(
             _worker(_feedback_queue, _runner_feedback, "feedback", session.id)
         )
+        retry_task = asyncio.create_task(
+            _pending_ai_retry_worker(session.id)
+        )
 
         # Subscribe to MQTT topics (callbacks fire in awscrt thread)
         global_iot_client.subscribe(TOPIC_SUBSCRIBE_TELEMETRIA, process_event)
@@ -363,7 +458,7 @@ async def main():
 
         # Keep the event loop alive. gather() will also propagate worker
         # exceptions if a fatal error occurs in either worker.
-        await asyncio.gather(triage_task, feedback_task)
+        await asyncio.gather(triage_task, feedback_task, retry_task)
 
     except Exception as e:
         logger.critical(f"[CRITICAL] Fatal error in Coordinator: {e}")

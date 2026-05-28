@@ -149,12 +149,12 @@ function prepare_environment() {
             AI_MODE="api"
             echo ""
             echo -e "${YELLOW}   ¿Qué modelo de Gemini vas a utilizar?${NC}"
-            echo "   1) gemini-flash-latest (Por defecto, rápido y equilibrado)"
+            echo "   1) gemini-3-flash-preview (Por defecto, Gemini 3 Flash)"
             echo "   2) gemini-pro-latest (Avanzado)"
             read -rp "   Selecciona (1-2) o escribe su nombre [1]: " model_choice
 
             case $model_choice in
-                1|"") AI_MODEL="gemini-flash-latest" ;;
+                1|"") AI_MODEL="gemini-3-flash-preview" ;;
                 2) AI_MODEL="gemini-pro-latest" ;;
                 *) AI_MODEL="${model_choice}" ;;
             esac
@@ -297,10 +297,14 @@ function purge_logs_and_records() {
 import sqlite3, sys
 conn = sqlite3.connect('/app/data/soc_data.db')
 deleted = conn.execute('DELETE FROM logs').rowcount
+try:
+    pending_deleted = conn.execute('DELETE FROM pending_ai_events').rowcount
+except sqlite3.OperationalError:
+    pending_deleted = 0
 conn.commit()
 conn.execute('VACUUM')
 conn.close()
-print(f'[OK] {deleted} filas eliminadas')
+print(f'[OK] {deleted} logs eliminados; {pending_deleted} eventos IA pendientes eliminados')
 " ; then
             :
         else

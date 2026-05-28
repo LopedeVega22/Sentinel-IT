@@ -30,6 +30,7 @@ Si vienes nuevo al proyecto, lee los documentos en el orden de las fases. Si vie
 | **9. Testing** | [Testing_Guide.md](Testing_Guide.md) | Test E2E (`test_agent_flow.py`), unitarios (`test_policy_engine.py`), pruebas MQTT (`test_flexible_command.py`), mocks |
 | **10. Despliegue** | [Configuration_and_Deployment.md](Configuration_and_Deployment.md) | `config.yml`, `.env`, Docker Compose, `soc_manager.sh`, perfiles `local-ai` vs Gemini API |
 | **11. Trabajo futuro** | [futuras_mejoras.md](futuras_mejoras.md) | Propuestas evaluadas no implementadas, motivación y plan de migración |
+| **12. Resiliencia Gemini 429** | [plan_implementacion_resiliencia_gemini_429.md](plan_implementacion_resiliencia_gemini_429.md) | Persistencia `pending_ai_events`, backoff de reintento y limpieza desde SOC Manager |
 
 ## Operaciones y mantenimiento
 

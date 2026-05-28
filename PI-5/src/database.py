@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import yaml
+from tools.pending_ai_events import init_pending_ai_events_schema
 
 # Rutas base y configuracion
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -92,6 +93,8 @@ cursor.execute('''
 
 conn.commit()
 conn.close()
+
+init_pending_ai_events_schema(DB_PATH)
 
 print(f"[INFO] Base de datos preparada en: {DB_PATH}")
 

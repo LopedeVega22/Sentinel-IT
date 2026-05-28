@@ -136,7 +136,41 @@ except sqlite3.OperationalError:
 
 Cualquier DB creada con el esquema viejo (pre-HITL) se actualiza al arrancar sin perder datos. Si se añaden columnas nuevas, repetir el patrón.
 
-## 4. Tabla `audit_log`
+## 4. Tabla `pending_ai_events`
+
+Cola persistente para eventos MQTT que llegaron correctamente al coordinador, pero no pudieron ser procesados por el agente IA porque Gemini API devolvio un fallo de cuota/gasto (`429 RESOURCE_EXHAUSTED`).
+
+Antes de esta tabla, un 429 dejaba el error en logs pero el evento se daba por terminado en la cola async. Con esta tabla, el evento queda retenido, visible y reintentable.
+
+```sql
+CREATE TABLE IF NOT EXISTS pending_ai_events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    device         TEXT NOT NULL,
+    queue_type     TEXT NOT NULL,              -- triage | feedback
+    raw_log        TEXT NOT NULL,              -- evento original normalizado
+    status         TEXT NOT NULL DEFAULT 'PENDING_AI_RETRY',
+    error_reason   TEXT,
+    retry_count    INTEGER NOT NULL DEFAULT 0,
+    next_retry_at  DATETIME,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 4.1 Ciclo de vida
+
+| `status` | Significado |
+|----------|-------------|
+| `PENDING_AI_RETRY` | El evento no fue procesado por fallo de modelo API y esta esperando reintento |
+| `PROCESSED` | El worker de retry logro procesarlo posteriormente |
+
+### 4.2 Limpieza operativa
+
+La opcion `SOC Manager -> 5) Desinstalar SOC -> 3) Borrar solo logs y registros` borra tanto `logs` como `pending_ai_events`.
+
+Esto es importante porque una limpieza manual debe dejar el SOC realmente limpio: no deben quedar eventos antiguos reintentandose despues de borrar el historial visible.
+
+## 5. Tabla `audit_log`
 
 Bitácora forense del Policy Engine. Una fila por **decisión** sobre un comando, no por incidente.
 
@@ -154,7 +188,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 ```
 
-### 4.1 Tipos de evento
+### 5.1 Tipos de evento
 
 | `event_type` | Cuándo se escribe | Quién lo escribe |
 |--------------|-------------------|------------------|
@@ -169,7 +203,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 Cualquier dispatch o decisión queda registrada. Si una fila de `audit_log` no tiene contrapartida razonable en el flujo, ha habido un bug — el log es la fuente de verdad.
 
-### 4.2 Triggers anti-modificación
+### 5.2 Triggers anti-modificación
 
 ```sql
 CREATE TRIGGER IF NOT EXISTS audit_log_no_update
@@ -189,7 +223,7 @@ Estos triggers se ejecutan **antes** de cualquier UPDATE/DELETE y abortan la tra
 
 > Para una nuke total, una entidad con acceso al fichero `.db` podría borrar la tabla a nivel de sistema operativo. Eso queda fuera del modelo de amenaza — el modelo asume que el host del coordinador no está comprometido a nivel SO. La defensa contra eso es seguridad del host (SELinux/AppArmor, montaje read-only del binario, etc.), no SQLite.
 
-### 4.3 Cómo consultar el audit log
+### 5.3 Cómo consultar el audit log
 
 No hay endpoint del dashboard que lo exponga — el audit_log es para forense, no para la UI operativa. Para consultarlo:
 
@@ -204,7 +238,7 @@ docker exec -it soc-coordinator-pi5 sqlite3 /app/data/soc_data.db \
     "SELECT * FROM audit_log WHERE event_type='REJECT_CRITICAL_UNCONFIRMED';"
 ```
 
-## 5. Política de retención
+## 6. Política de retención
 
 `db_tools.rotate_old_logs()` purga filas viejas de baja prioridad. Se ejecuta automáticamente antes de cada INSERT si `retention.purge_on_insert: true` en `config.yml`.
 
@@ -223,7 +257,7 @@ Reglas:
 
 Esto evita que la DB crezca indefinidamente con telemetría benigna mientras conserva el rastro completo de cualquier evento que requirió decisión.
 
-## 6. Acceso desde cada componente
+## 7. Acceso desde cada componente
 
 | Componente | Operaciones | Notas |
 |------------|-------------|-------|
@@ -255,7 +289,7 @@ for attempt in range(5):
 
 `timeout=15.0` ya da a SQLite 15 s adicionales internamente; el retry externo cubre los casos en los que ni siquiera con WAL el lock cede. En la práctica, con `synchronous=NORMAL` y WAL, los reintentos son raros.
 
-## 7. Backup y restauración
+## 8. Backup y restauración
 
 No hay backup automático en el MVP. Para producción, recomendaciones:
 
@@ -265,7 +299,7 @@ No hay backup automático en el MVP. Para producción, recomendaciones:
 
 `audit_log` se mantiene como append-only incluso en una copia — los triggers viajan con la tabla.
 
-## 8. Esquema completo (referencia rápida)
+## 9. Esquema completo (referencia rápida)
 
 ```sql
 -- Tabla 1: incidentes operativos
@@ -286,7 +320,21 @@ CREATE TABLE logs (
     revert_command TEXT
 );
 
--- Tabla 2: bitácora forense append-only
+-- Tabla 2: eventos pendientes por fallo de IA remota
+CREATE TABLE pending_ai_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device TEXT NOT NULL,
+    queue_type TEXT NOT NULL,
+    raw_log TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING_AI_RETRY',
+    error_reason TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    next_retry_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabla 3: bitácora forense append-only
 CREATE TABLE audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -306,7 +354,7 @@ CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
 BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
 ```
 
-## 9. Archivos involucrados
+## 10. Archivos involucrados
 
 ```
 PI-5/
@@ -315,10 +363,12 @@ PI-5/
 │   ├── tools/
 │   │   ├── db_tools.py          # register_alert, update_alert_status, rotate_old_logs
 │   │   ├── iot_tools.py         # UPDATE de status / pending_command / rationale
+│   │   ├── pending_ai_events.py # CREATE/INSERT/UPDATE/DELETE de pending_ai_events
 │   │   └── policy_engine.py     # audit() → única función que escribe en audit_log
 │   └── dashboard_soc.py         # SELECT del feed + UPDATE de HITL y revert
 ├── config.yml                   # database.db_path, retention.{max_days, purge_on_insert}
 ├── data/soc_data.db             # Fichero SQLite (montado en volume Docker)
 └── tests/
-    └── test_policy_engine.py    # Verifica los triggers de audit_log
+    ├── test_pending_ai_events.py # Verifica persistencia y backoff de eventos IA
+    └── test_policy_engine.py     # Verifica los triggers de audit_log
 ```

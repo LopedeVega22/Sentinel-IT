@@ -54,7 +54,7 @@ web:
   port: 5000
 
 agent:
-  model_name: "gemini-3.1-flash"   # solo se usa si AI_MODE != local
+  model_name: "gemini-3-flash-preview"   # solo se usa si AI_MODE != local
 
 logging:
   file_path: "/tmp/coordinator_soc.log"
@@ -95,7 +95,7 @@ DASHBOARD_PASSWORD=cambiame_en_produccion
 # Modo del agente IA
 AI_MODE=api                            # api → Vertex/Gemini directo
                                        # local → Ollama vía LiteLLM (necesita perfil docker)
-AI_MODEL=gemini-3.1-flash              # solo si AI_MODE=api
+AI_MODEL=gemini-3-flash-preview        # solo si AI_MODE=api
 # AI_MODEL=ollama/gemma4:2b            # si AI_MODE=local
 
 # Credenciales Gemini (solo si AI_MODE=api)
@@ -230,7 +230,7 @@ Dos formas de alimentar a los agentes:
 
 ```ini
 AI_MODE=api
-AI_MODEL=gemini-3.1-flash
+AI_MODEL=gemini-3-flash-preview
 GEMINI_API_KEY=AIza...
 ```
 
@@ -365,7 +365,7 @@ Si el dashboard se expone fuera de la LAN, **poner un reverse proxy con TLS por 
 | `DASHBOARD_PASSWORD` | `dashboard_soc.py` | (ninguno) | Si está, se hashea al arrancar |
 | `DASHBOARD_PASSWORD_HASH` | `dashboard_soc.py` | (ninguno) | Hash pre-computado (preferido) |
 | `AI_MODE` | `triage_agent.py`, `feedback_agent.py` | `api` | `local` para Ollama, `api` para Gemini |
-| `AI_MODEL` | idem | `gemini-3.1-flash` | Nombre exacto del modelo |
+| `AI_MODEL` | idem | `gemini-3-flash-preview` | Nombre exacto del modelo |
 | `GEMINI_API_KEY` | Vertex/Gemini SDK | — | Necesario si `AI_MODE=api` |
 | `TZ` | Sistema | `Europe/Madrid` | Para timestamps en logs y BD |
 

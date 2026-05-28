@@ -46,7 +46,34 @@ Definida en `main_coordinator.py:79`. Una por agente (`_triage_queue`, `_feedbac
 - **Encolamiento**: Si llega un nuevo evento mientras la IA está ocupada con una inferencia, este se guarda en la cola y se procesa secuencialmente tan pronto termine la inferencia actual.
 - **Backpressure**: Para evitar el consumo desmedido de memoria ante ráfagas, las colas están acotadas a `queue.max_size` (config.yml, default 100). Si la cola se llena, los nuevos eventos se descartan de forma segura.
 
-### 2.5 Policy Engine (resumen del acoplamiento)
+### 2.5 Persistencia de eventos pendientes por fallo de IA remota
+
+El coordinador no considera que un evento se haya perdido solo porque el modelo remoto falle. Si `runner.run_async()` lanza un error de cuota/gasto de Gemini (`429 RESOURCE_EXHAUSTED`), `main_coordinator.py` no descarta el evento: lo guarda en SQLite mediante `src/tools/pending_ai_events.py`.
+
+Flujo aplicado:
+
+1. El evento llega por MQTT y entra en `_triage_queue` o `_feedback_queue`.
+2. El worker intenta procesarlo con el agente ADK correspondiente.
+3. Si Gemini devuelve `429 RESOURCE_EXHAUSTED`, se crea una fila en `pending_ai_events` con `status='PENDING_AI_RETRY'`.
+4. `_pending_ai_retry_worker()` revisa periodicamente los pendientes vencidos y los reintenta con el mismo agente.
+5. Si el reintento funciona, la fila pasa a `PROCESSED`; si vuelve a fallar, aumenta `retry_count` y retrasa `next_retry_at`.
+
+Esto mantiene el diseno decidido para el proyecto:
+
+- No hay fallback automatico a modelo local.
+- No se cambia de modelo a escondidas.
+- El evento queda retenido y visible hasta que pueda procesarse o hasta que el operador limpie el sistema.
+
+Backoff actual:
+
+| Intento fallido | Siguiente reintento |
+|-----------------|---------------------|
+| 1 | 1 minuto |
+| 2 | 5 minutos |
+| 3 | 15 minutos |
+| 4+ | 1 hora |
+
+### 2.6 Policy Engine (resumen del acoplamiento)
 
 El motor (`src/tools/policy_engine.py`) interviene en **dos puntos** del flujo de agentes:
 
@@ -129,6 +156,8 @@ PI-4 sensor          PI-5 coordinator        Policy Engine     Triage Agent
 
 `config.yml`:
 - `queue.max_size` (default 100) — límite de backpressure por cola de agente.
+- `queue.ai_retry_poll_seconds` (default 30) - frecuencia con la que el worker busca eventos `PENDING_AI_RETRY`.
+- `queue.ai_retry_batch_size` (default 5) - maximo de pendientes a reintentar por ciclo.
 - `mqtt.topic_subscribe_*` — patrones de suscripción del coordinador.
 - `mqtt.topic_publish_comando` — plantilla con `{device}` que las tools sustituyen al publicar.
 
@@ -155,6 +184,7 @@ PI-5/
 │   └── tools/
 │       ├── iot_tools.py               # execute_diagnostic_command, request_mitigation_approval
 │       ├── db_tools.py                # register_alert, update_alert_status
+│       ├── pending_ai_events.py       # persistencia y retry de eventos no procesados por 429
 │       └── policy_engine.py           # classify, decide, audit
 └── tests/
     └── test_agent_flow.py             # Test E2E real (MQTT)

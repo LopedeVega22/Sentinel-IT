@@ -28,7 +28,7 @@ web:
   port: 5000
 
 agent:
-  model_name: "gemini-2.5-flash"
+  model_name: "gemini-3-flash-preview"
 
 logging:
   file_path: "/tmp/coordinator_soc.log"

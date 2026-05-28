@@ -331,6 +331,71 @@ docker logs soc-coordinator-pi5 | grep "Transaction complete"
 
 ---
 
+### 3.9 Gemini API devuelve `429 RESOURCE_EXHAUSTED`
+
+#### Sintoma
+
+En los logs del coordinador aparece:
+
+```text
+429 RESOURCE_EXHAUSTED
+Your project has exceeded its monthly spending cap
+```
+
+O una linea resumida del coordinador:
+
+```text
+Fallo modelo API: Gemini ha superado cuota/gasto. Evento guardado como PENDING_AI_RETRY
+```
+
+#### Causa
+
+La API remota de Gemini no acepta nuevas inferencias porque el proyecto ha superado su limite de gasto/cuota. MQTT puede seguir funcionando y el dashboard puede seguir respondiendo, pero los agentes ADK no pueden analizar nuevos eventos hasta que la API vuelva a estar disponible.
+
+#### Comportamiento actual
+
+El evento no se pierde. El coordinador lo guarda en SQLite, tabla `pending_ai_events`, con:
+
+- `status='PENDING_AI_RETRY'`
+- `queue_type='triage'` o `queue_type='feedback'`
+- `raw_log` con el evento completo que no pudo analizarse
+- `next_retry_at` calculado con backoff
+
+El worker `_pending_ai_retry_worker()` reintenta mas tarde con el mismo modelo API. No cambia automaticamente a modelo local.
+
+#### Diagnostico
+
+```bash
+docker exec -it soc-coordinator-pi5 python3 -c "
+import sqlite3
+conn = sqlite3.connect('/app/data/soc_data.db')
+for row in conn.execute(\"SELECT id, device, queue_type, status, retry_count, next_retry_at FROM pending_ai_events ORDER BY id DESC LIMIT 10\"):
+    print(row)
+conn.close()
+"
+```
+
+Tambien puede consultarse desde el dashboard/API: `/api/data` incluye el campo `pending_ai_events` con el contador de pendientes.
+
+#### Solucion
+
+1. Revisar el limite de gasto/cuota del proyecto Gemini.
+2. Mantener `AI_MODEL=gemini-3-flash-preview` si se quiere evitar alias movibles y modelos mas caros.
+3. Reiniciar el contenedor solo si se ha cambiado `.env`.
+4. Esperar a que el worker procese los `PENDING_AI_RETRY` cuando la API vuelva a responder.
+
+#### Limpieza manual
+
+Si quieres dejar el entorno limpio, usa:
+
+```text
+SOC Manager -> 5) Desinstalar SOC -> 3) Borrar solo logs y registros
+```
+
+Esa opcion borra `logs` y `pending_ai_events`, para que no queden eventos antiguos reintentandose despues de limpiar el historial visible.
+
+---
+
 ## 4. Cómo verificar que todo funciona
 
 Checklist rápida para validar que el sistema está operativo:

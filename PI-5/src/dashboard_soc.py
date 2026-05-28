@@ -257,6 +257,23 @@ def get_unique_vectors():
         return 0
 
 
+def get_pending_ai_events_count():
+    """Counts events retained because the remote AI model could not process them."""
+    try:
+        conn = _get_connection()
+        c = conn.cursor()
+        c.execute("""
+            SELECT COUNT(*)
+            FROM pending_ai_events
+            WHERE status = 'PENDING_AI_RETRY'
+        """)
+        count = c.fetchone()[0]
+        conn.close()
+        return count
+    except Exception:
+        return 0
+
+
 def get_threat_level():
     """
     Calculates a threat index from 0 to 100.
@@ -531,6 +548,7 @@ def index():
     total, criticals, blocks, last_seen = get_db_stats()
     vector_stats = get_vector_stats()
     unique_vectors = get_unique_vectors()
+    pending_ai_events = get_pending_ai_events_count()
     threat_level = get_threat_level()
     mqtt_status = "connected" if (mqtt_client and mqtt_client.is_alive()) else "disconnected"
     sys_info = get_sys_info()
@@ -544,6 +562,7 @@ def index():
                           last_seen=last_seen,
                           vector_stats=vector_stats,
                           unique_vectors=unique_vectors,
+                          pending_ai_events=pending_ai_events,
                           threat_level=threat_level,
                           mqtt_status=mqtt_status,
                           sys_info=sys_info,
@@ -558,6 +577,7 @@ def api_data():
     total, criticals, blocks, last_seen = get_db_stats()
     vector_stats = get_vector_stats()
     unique_vectors = get_unique_vectors()
+    pending_ai_events = get_pending_ai_events_count()
     threat_level = get_threat_level()
     mqtt_status = "connected" if (mqtt_client and mqtt_client.is_alive()) else "disconnected"
     sys_info = get_sys_info()
@@ -571,6 +591,7 @@ def api_data():
         "last_seen": last_seen,
         "vector_stats": vector_stats,
         "unique_vectors": unique_vectors,
+        "pending_ai_events": pending_ai_events,
         "threat_level": threat_level,
         "mqtt_status": mqtt_status,
         "sys_info": sys_info,
